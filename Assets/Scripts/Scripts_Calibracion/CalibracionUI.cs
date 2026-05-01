@@ -75,7 +75,7 @@ public class CalibracionUI : MonoBehaviour
             pellizcoSeleccionado = pellizcoDerecho;
         }
 
-        MostrarInstrucciones();
+        MostrarInstrucciones(mano);
     }
 
     void MostrarInstrucciones(string mano)
