@@ -15,9 +15,13 @@ public class UIManager : MonoBehaviour
     public MaximoIzquierda maximoIzquierda;
     public MaximoDerecha maximoDerecha;
 
-    [Header("Input Pellizco")]
-    public InputActionReference pellizcoIzquierdo;
-    public InputActionReference pellizcoDerecho;
+    [Header("Detección de Pellizco")]
+    public Transform thumbTipIzquierda; // En el codigo de ejemplo es el L_thumbTip
+    public Transform indexTipIzquierda; // En el codigo de ejemplo es el L_indexTip
+    public Transform thumbTipDerecha; //En el codigo de ejemplo es el R_thumbTip
+    public Transform indexTipDerecha; //En el codigo de ejemplo es el R_indexTip
+
+    public float distanciaPellizco = 0.02f; // Distancia en Metros para considerar un pellizco
 
     //Vamos a crear los estados del flujo de calibración que vamos a seguir para tener el control en todo momento
     private enum Estado{ SeleccionMano, Intrucciones, EsperandoPellizco, Guardado}
@@ -34,18 +38,6 @@ public class UIManager : MonoBehaviour
 
         //Comenzamos con el estado de Seleccion de Mano
         MostrarSeleccionMano();
-    }
-
-    void OnEnable()
-    {
-        pellizcoIzquierdo.action.Enable();
-        pellizcoDerecho.action.Enable();
-    }
-
-    void OnDisable()
-    {
-        pellizcoIzquierdo.action.Disable();
-        pellizcoDerecho.action.Disable();
     }
 
     //----------------------------------------------
@@ -68,12 +60,10 @@ public class UIManager : MonoBehaviour
         if(mano == "izquierda")
         {
             manoSeleccionada = maximoIzquierda;
-            pellizcoSeleccionado = pellizcoIzquierdo;
         }
         else
         {
             manoSeleccionada = maximoDerecha;
-            pellizcoSeleccionado = pellizcoDerecho;
         }
 
         MostrarInstrucciones(mano);
@@ -92,17 +82,17 @@ public class UIManager : MonoBehaviour
     void Update()
     {
         if (estadoActual != Estado.EsperandoPellizco) return;
-        if (pellizcoSeleccionado == null) return;
+        bool esIzquierda = (manoSeleccionada == maximoIzquierda); //Si son iguales es izquierda (true), si no es derecha
 
-        //Para detectar el pellizco (valor > 0.8 = pellizco fuerte)
-        float valorPellizco = pellizcoSeleccionado.action.ReadValue<float>();
-    
-        if (valorPellizco > 0.8f)
+        float distancia = esIzquierda ? Vector3.Distance(thumbTipIzquierda.position, indexTipIzquierda.position) : Vector3.Distance(thumbTipDerecha.position, indexTipDerecha.position); 
+        Debug.Log("Distancia Pellizco: " + distancia);
+
+        if(distancia < distanciaPellizco)
         {
             manoSeleccionada.GuardarMaximo();
             MostrarConfirmacion();
         }
-    
+
     }
 
     void MostrarConfirmacion()
@@ -110,7 +100,7 @@ public class UIManager : MonoBehaviour
         estadoActual = Estado.Guardado;
         textoCalibracion.text = "¡Posición guardada!\nYa puedes controlar el brazo robot con esta mano.";
         
-        Invoke(nameof(CerrarPanel),3f);
+        Invoke(nameof(CerrarPanel),3f); //despues de 3 segundos se cierra el panel, esto es importante para que el usuario tenga tiempo de leer la confirmacion antes de que el panel desaparezca, lo que mejora la experiencia del usuario.
     }
 
     void CerrarPanel()
