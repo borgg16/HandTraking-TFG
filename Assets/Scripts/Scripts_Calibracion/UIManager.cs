@@ -1,12 +1,12 @@
 using UnityEngine;
-using UnityEngine.UI;
+using TMPro;
 using UnityEngine.InputSystem;
-public class CalibracionUI : MonoBehaviour
+public class UIManager : MonoBehaviour
 {
 
-    [Header("UI")]
+    [Header("UI del panel de calibración")]
     public GameObject panelCalibracion;
-    public Text textoPrincipal;
+    public TextMeshProUGUI textoCalibracion;
     public Button botonIzquierda;
     public Button botonDerecha;
 
@@ -54,7 +54,7 @@ public class CalibracionUI : MonoBehaviour
     void MostrarSeleccionMano()
     {
         estadoActual = Estado.SeleccionMano;
-        textoPrincipal.text = "¿Qué brazo deseas calibrar?";
+        textoCalibracion.text = "¿Qué brazo deseas calibrar?";
         botonIzquierda.gameObject.SetActive(true);
         botonDerecha.gameObject.SetActive(true);
     }
@@ -81,7 +81,7 @@ public class CalibracionUI : MonoBehaviour
     void MostrarInstrucciones(string mano)
     {
         estadoActual = Estado.Intrucciones;
-        textoPrincipal.text = $"Estira el brazo {mano} hacia el frente\n"
+        textoCalibracion.text = $"Estira el brazo {mano} hacia el frente\n"
         + "formando un ángulo de 90 grados con el torso.\n"
         + "Luego haz un pellizco para guardar la posición.";
 
@@ -107,7 +107,7 @@ public class CalibracionUI : MonoBehaviour
     void MostrarConfirmacion()
     {
         estadoActual = Estado.Guardado;
-        textoPrincipal.text = "¡Posición guardada!\nYa puedes controlar el brazo robot con esta mano.";
+        textoCalibracion.text = "¡Posición guardada!\nYa puedes controlar el brazo robot con esta mano.";
         
         Invoke(nameof(CerrarPanel),3f);
     }
