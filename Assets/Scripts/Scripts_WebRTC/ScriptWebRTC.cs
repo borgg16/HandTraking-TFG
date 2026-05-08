@@ -1,0 +1,390 @@
+using System.Collections;
+using System.Text;
+using System.Threading.Tasks;
+using Unity.WebRTC;
+using UnityEngine;
+using UnityEngine.UI;
+using NativeWebSocket;
+
+public class ScriptWebRTC : MonoBehaviour
+{
+    [Header("Configuración de Red")]
+    [Tooltip("Dirección IP local del PC del Robot. Consultar con 'ipconfig' (Windows) o con 'ip a' (Linux)")] //Muestra texto de ayuda emergente en el inspector para explicar la función de esta variable
+    public string ipRobot = "192.168.4.1"; //TODO: No sabemos la IP aún
+    public int puertoWebRTC = 8080;
+
+    [Header("Panel de Control")]
+    [Tooltip("Imagen del video recibido")] //Muestra texto de ayuda emergente en el inspector para explicar la función de esta variable
+    public RawImage imagenVideo; //Es raw y no Image porque vamos a asignar una textura de video que no es un sprite.
+//----------------------------------------------------------------------
+    // VARIABLES PRIVADAS para la conexión WebRTC
+    private RTCPeerConnection peerConnection;
+    //Representa la conexion WebRTC completa entre Unity y el robot.
+    //Gestiona internamente: Cifrado DTLS, control de congestion, ICE, etc.
+    //Es el objeto central de la comunicacion punto a punto (P2P).
+    private RTCDataChannel dataChannel;
+    //Canal de datos bidireccional dentro de la conexion WebRTC
+    //Por aqui enviamos las coordenadas al robot en formato JSON
+    //y recibimos las coordenadas del brazo robot de vuelta.
+    //Es similar a un socket TCP pero integrado en WebRTC sin servidor.
+    private WebSocket webSocket;
+    //Conexion al servidor de signaling de Python
+    //SOLO se usará durante el establecimiento inicial de la conexion WebRTC
+    //para intercambiar los mensajes SDP e ICE.
+    //Una vez conectados P2P, este canal queda inactivo
+    private bool conexionEstablecida = false;
+    //Flag para proteger los envios por DataChannel antes de que el canal este abierto (evitamos excepciones que controlar)
+
+    //EVENTO PUBLICO que nos permitirá al panel de control estar "Subcrito a las coordenadas del robot"
+    public event Action<Vector3> OnCoordenadasRobot;
+    //Cuando recibamos coordenadas del robot hace algo
+
+    //----------------------------------------------
+    // INICIALIZACIÓN
+    //----------------------------------------------
+
+    // async porque queremos usar await dentro de la funcion.
+    async void Start()
+    {
+        //Inicializamos el subsistema WebRTC, es obligatorio hacer la llamada antes de crear ninguna conexion ya que lo que esto hace es preparar el entorno de Unity para WebRTC
+        //como es un proceso sincrono, no se necesita yield return
+        WebRTC.Initialize();
+
+        //Esperamos a que se conecte al servidor de señalizacion de manera asincrona para que la app no se bloquee. 
+        await ConectarSignaling();
+    }
+
+    //----------------------------------------------
+    // SIGNALING (Primera fase de la conexión WebRTC)
+    //----------------------------------------------
+
+    async Task ConectarSignaling() //Es async Task porque websocket.Connect() nos lo devuelve, como no se tocan objetos es seguro de usar
+    {
+        //Creamos la conexion WebSocket al servidor de signaling
+        websocket = new WebSocket($"ws://{ipRobot}:{puertoWebRTC}/signaling");
+        // "ws://" porque estamos en una red local y no necesitamos certificado SSL, si necesitaramos esto, añadiriamos otra s "wss://"
+
+        websocket.OnOpen += () =>
+        {
+            Debug.Log("Se ha conectado al servidor de Python");
+            StartCoroutine(CrearOferta()); //(Como CrearOferta es IEnumerator, necesitamos iniciar la corrutina)
+        };
+
+        websocket.OnMessage += (bytes) =>
+        {
+            //Se va a disparar cada vez que el servidor de python nos reenvia un mensaje del robot
+            Debug.Log("Mensaje recibido del servidor de Python");
+            ProcesarMensajeSignaling(Encoding.UTF8.GetString(bytes));
+            //Hemos convertido los bytes a String ya que los mensajes que se envien y reciban estarán en formato JSON
+        };
+
+        websocket.OnError += (error) =>
+        {
+            Debug.LogError($"Error en el Signaling de WebSocket: {error}");
+        };
+
+        websocket.OnClose += (code) =>
+        {
+            Debug.Log($"WebSocket cerrado con codigo: {code}");
+        };
+
+        //Await espera a que la conexion TCP+WebSocket se establezca antes de continuar, si no se hiciera esto, podríamos intentar enviar mensajes antes de estar conectados y eso causaría errores.
+        await websocket.Connect();
+    }
+
+    void Update()
+    {
+        //NativeWebSocket necesita ser llamado por el hilo principal para procesar los mensajes recibidos, sino OnMessage no se disparará
+        websocket?.DispatchMessageQueue();
+        //El "?." es un null-safe, es decir si ese objeto es null, no se hace nada
+    }
+
+    //----------------------------------------------
+    //PEER CONECTION (El nucleo de la conexión WebRTC)
+    //----------------------------------------------
+    IEnumerator CrearOferta()
+    {
+        var config = new RTCConfiguration
+        {
+            iceServers = new[]
+            {
+                new RTCIceServer { 
+                    urls = new[] { "stun:stun.l.google.com:19302" } 
+                    }
+            }
+        };
+        //ICE (Interactive Connectivity Establishment) es el mecanismo que descubre como llegar de un dispositivo al otro a través de la red)
+        //El servidor STUN (Session Traversal Utilities for NAT) es un servicio que ayuda a los dispositivos a descubrir su dirección IP pública y el tipo de NAT (Network Address Translation) que están utilizando, lo cual es crucial para establecer conexiones WebRTC exitosas.
+
+        peerConnection = new RTCPeerConnection(ref config);
+        //ref config poruqe RTCConfiguration es un struct, no una clase así que vamos a pasar la referencia del struct de la configuracion
+
+//----- CallBack de los candidatos ICE (Interactive Connectivity Establishment)---------------------------------------------------------
+        peerConnection.OnIceCandidate = candidato =>
+        {
+            //Cuando la red descubre una posible ruta de red (Candidato), lo enviamos al robot a través del servidor de signaling
+            //El robot hará lo mismo y WebRTC probará todas las rutas posibles para elegir la mejor.
+            var msg = JsonUtility.ToJson(new SignalingMessage
+            {
+                type = "candidate",
+                candidate = candidato.Candidate,
+                sdpMid = candidato.SdpMid, //identifica a que stream pertenece el candidato
+                sdpMLineIndex = candidato.SdpMLineIndex ?? 0 //Si hay valor toma valor, en caso de null pues pone 0 (es el indice numerico del stream dentro del documento SDP)
+            });
+            //No tiene async ni corrutina porq esta dentro de una funcion lambda
+            websocket.SendText(msg);
+        };
+
+        peerConnection.OnIceConnectionChange = estado =>
+        {
+            Debug.Log("ICE Estado: " + estado); 
+        };//Para ver en consola los distintos estados por los que pasa
+        
+
+//----- CallBack de recepcion del video del robot -------------------------------------------------------------------------------------
+        peerConnection.OnTrack = e =>
+        {
+            //OnTrack se dispara cuando el robot nos envia un archivo de video
+            if(e.Track is VideoStreamTrack videoTrack)
+            {
+                videoTrack.OnVideoReceived += tex =>
+                {
+                    //OnVideoReceived se llama cada vez que llega un nuevo frame, asignamos la textura directamente al RawImage del panel, lo cual actualiza la imagen automaticamente.
+                    
+                    if(imagenVideo != null)
+                    {
+                        imagenVideo.texture = tex;
+                    }
+                };
+            }
+        }; 
+
+//----- DataChannel para enviar comandos al robot -------------------------------------------------------------------------------------
+        var opciones = new RTCDataChannelInit
+        {
+            ordered = true //ponerlo a true garantiza que los mensajes lleguen en orden.
+            //Para coordenadas es importante ya que no queremos que el robot ejecute 'mover posicion A' despues de 'mover posicion B', si B llega primero se reordena el paquete
+        };
+
+        dataChannel = peerConnection.CreateDataChannel("comandos", opciones);
+        //Aqui podemos crear varios canales si fuera necesario separar mensajes, "comandos" es un string que indica el nombre del canal.
+
+        dataChannel.OnOpen += () =>
+        {
+            conexionEstablecida = true;
+            Debug.Log("DataChannel abierto -- preparado para enviar comandos");
+        };
+
+        dataChannel.OnClose += () =>
+        {
+            conexionEstablecida = false;
+            Debug.Log("DataChannel cerrado");
+        };
+
+        //La linea esta nos va a servir para recibir las coordenadas del brazo por este canal
+        //TODO: (lo deberia guardar en una variable)
+        dataChannel.OnMessage += bytes =>
+        {
+            //Parseamos el JSON y le decimos al panel de control que actualice el texto
+            string json = Encoding.UTF8.GetString(bytes);
+
+            var coordenadasRobot = JsonUtility.FromJson<CoordenadaMsg>(json);
+
+            if(coordenadasRobot != null)
+            {
+                Vector3 posRobot = new Vector3(coordenadasRobot.x, coordenadasRobot.y, coordenadasRobot.z);
+                OnCoordenadasRobot?.Invoke(posRobot); //si nadie se ha suscrito pues no hago nada
+            }
+            else
+            {
+                Debug.LogWarning($"Mensaje del robot no reconocido: {json}");
+            }
+
+
+            //Debug.Log("Mensaje recibido del robot: " + Encoding.UTF8.GetString(bytes));  
+        };
+
+//----- Negociación de la conexión (SDP) -------------------------------------------------------------------------------------
+        /*
+            SDP (Session Description Protocol) es un documento de texto
+            que describe que capacidades tiene cada extremo: que codecs de video soporta,
+            que canales de datos quiere abrir, etc.
+
+            El proceso de negociación es el siguiente:
+            1. El cliente (Unity) crea una oferta (offer) con su descripción SDP
+            2. Robot responde con una respuesta (answer) con su propia descripción SDP
+        */
+        var ofertaOp = peerConnection.CreateOffer();
+        yield return ofertaOp; //Esperamos a que se cree la oferta sin bloquear el hilo principal de Unity
+
+        //TODO: Comprobar si hubo error en la oferta
+        if(ofertaOp.IsError)
+        {
+            Debug.LogError("Error creando la oferta: " + ofertaOp.Error.message);
+            yield break; //Salimos de la corrutina si hubo error
+        }
+
+        var descLocal = new RTCSessionDescription
+        {
+            type = RTCSdpType.Offer,
+            sdp = ofertaOp.Desc.sdp
+        };
+
+        var setLocalOp = peerConnection.SetLocalDescription(ref descLocal);
+        yield return setLocalOp; //Esperamos a que se establezca la descripcion local
+
+        //Comrprobamos que este libre de errores
+        if(setLocalOp.IsError)
+        {
+            Debug.LogError("Error en SetLocalDescription: " + setLocalOp.Error.message);
+            yield break; //Salimos de la corrutina si hubo error
+        }
+
+        //Enviamos la oferta al robot a través del servidor de signaling.
+        //Robot recibira la oferta en OnMessage del WebSocket, generara una respuesta y la devolvera a ESTE codigo.
+        websocket.SendText(JsonUtility.ToJson(new SignalingMessage
+        {
+            type = "offer",
+            sdp = ofertaOp.Desc.sdp
+        }));
+
+        Debug.Log("Oferta SDP enviada al robot, esperando respuesta...");
+    }   
+
+    //------------------------------------------------------------------------
+    // PROCESAMIENTO DE MENSAJES DEL ROBOT A TRAVÉS DEL SERVIDOR DE SIGNALING
+    //------------------------------------------------------------------------
+    void ProcesarMensajeSignaling(string json)
+    {
+
+        SignalingMessage msg;
+        try
+        {
+            msg = JsonUtility.FromJson<SignalingMessage>(json);
+        }
+        catch(System.Exception ex)
+        {
+            Debug.LogError($"Error parseando mensaje de signaling: {ex.Message}");
+            return;                              
+        }
+
+        if(msg == null || string.IsNullOrEmpty(msg.type))
+        {
+            Debug.LogWarning($"Mensaje de signaling con formato desconocido: {json}");
+            return;
+        }
+
+        switch (msg.type)
+        {
+            case "answer":
+                //El robot acepto nuestra oferta y nos manda su SDP.
+                StartCoroutine(AplicarAnswer(msg.sdp));
+                break;
+            
+            case "candidate":
+                //El robot nos comunica una de sus rutas de red posibles.
+                //WebRTC probara esta ruta junto con las nuestras para elegir la mejor combinacion de caminos
+                if(peerConnection == null)
+                {
+                    Debug.LogWarning("Recibido candidato ICE pero la conexión WebRTC no esta inicializada");
+                    return;
+                }
+
+                var candidato = new RTCIceCandidate(new RTCIceCandidateInit
+                {
+                    candidate = msg.candidate,
+                    sdpMid = msg.sdpMid,
+                    sdpMLineIndex = msg.sdpMLineIndex
+                });
+                peerConnection.AddIceCandidate(candidato);
+                break;
+
+            default:
+                Debug.LogWarning($"Tipo de mensaje de signaling desconocido: {msg.type}");
+                break;
+        }
+    }
+
+    IEnumerator AplicarAnswer(string sdp)
+        {
+            var desc = new RTCSessionDescription(
+                type = RTCSdpType.Answer,
+                sdp = sdp
+            );
+
+            var op = peerConnection.SetRemoteDescription(ref desc);
+            yield return op;
+
+            if(op.IsError)
+            {
+                Debug.LogError("Error en SetRemoteDescription: " + op.Error.message);
+            }
+            else
+            {
+                Debug.Log("---- NEGOCIACION WEBRCT COMPLETA - CONEXION P2P ESTABLECIDA -----");
+            }
+        }
+
+//---------------------------------------------------------
+// ENLACE CON PANEL DE CONTROL PARA IMPRIMIR COORDENADAS DEL ROBOT
+//---------------------------------------------------------
+    /*
+        Vamos a enviar la poscion normalizada de la mano y aperturade pinza al robot
+        - <name = "posNormalizada"> x = lateral, y = altura, z = profundidad (todos entre 0 y 1)
+        - <name = "gripper"> 0 = pinza cerrada, 1 = pinza abierta 
+    */
+
+    public void EnviarPosicion(Vector3 posNormalizada, float gripper)
+    {
+        if(!conexionEstablecida)
+        {
+            Debug.LogWarning("Intentando enviar comando al robot pero la conexion no esta establecida");
+            return;
+        }
+
+        //Vamos a construir el JSON manualmente porque hemos detectado que al hacerlo con funciones y tal se añade retardo (algun frame puede escaparse) y producir basurilla
+        string json = $"{{\"x\":{posNormalizada.x:F3}," +
+                        $"\"y\":{posNormalizada.y:F3}," +
+                        $"\"z\":{posNormalizada.z:F3}," +
+                        $"\"g\":{Mathf.Clamp01(gripper):F3}}}";
+        //F3 formatea el numero a 3 decimales, Clamp01 se asegura de que el valor de gripper esté entre 0 y 1
+        dataChannel.Send(json);
+    }
+
+//------------------------------------------------------------------------
+// LIMPIEZA DE SOCKETS Y CONEXIONES AL CERRAR LA APLICACIÓN
+//------------------------------------------------------------------------
+    void OnDestroy()
+    {
+        dataChannel?.Close();
+        peerConnection?.Close();
+        webSocket?.Close();
+        WebRTC.Dispose(); //Limpiamos los recursos de WebRTC, es importante llamar a esto para evitar fugas de memoria
+    }
+
+//------------------------------------------------------------------------
+// CLASES AUXILIARES PARA PARSEAR LOS MENSAJES DE SEÑALIZACIÓN
+//------------------------------------------------------------------------
+    [System.Serializable] //Pasa de JSON a otros datos
+    public class SignalingMessage
+    {
+        public string type; // "offer", "answer", "candidate"
+        public string sdp; // Solo para offer/answer
+        public string candidate; // ruta de red (candidate)
+        public string sdpMid; // identificador del stream
+        public int sdpMLineIndex; // indice en el documento SDP
+    }
+
+    [System.Serializable]
+    public class CoordenadaMsg
+    {
+        public float x; // lateral normalizada entre 0 y 1
+        public float y; // altura normalizada entre 0 y 1
+        public float z; // profundidad normalizada entre 0 y 1
+
+        //TODO: Podriamos incluir el estado de la pinza
+        //No incluimos "g" - el robot no nos va a enviar el estado de la pinza, solo la posicion del brazo, para simplificar
+    }
+
+
+}

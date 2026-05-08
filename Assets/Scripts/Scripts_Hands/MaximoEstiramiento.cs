@@ -19,7 +19,7 @@ public abstract class MaximoEstiramiento : MonoBehaviour
     {
         maximoEstiramiento = mano.position; //Guardamos la posicion actual de la mano como el maximo estiramiento, esto es importante para que podamos utilizar este valor posteriormente para calcular las posiciones relativas de las manos en funcion de la posicion de los hombros, lo que mejora la experiencia del control y la inmersion.
         guardado = true; //Indicamos que el maximo estiramiento ha sido guardado, esto es importante para que otras clases puedan verificar si el maximo estiramiento ha sido guardado o no antes de realizar calculos o tomar decisiones basadas en este valor, lo que mejora la seguridad y la integridad del codigo.
-        Debug.Log($"Maximo estiramiento guardado en {gameObject.name} : {maximoEstiramiento}"); //Imprimimos en la consola el valor del maximo estiramiento guardado, esto es importante para que podamos verificar que el valor se ha guardado correctamente y para facilitar la depuracion del codigo.
+        Debug.Log($"Maximo estiramiento guardado en {gameObject.name} : {mano.position}"); //Imprimimos en la consola el valor del maximo estiramiento guardado, esto es importante para que podamos verificar que el valor se ha guardado correctamente y para facilitar la depuracion del codigo.
     }
 
 }
