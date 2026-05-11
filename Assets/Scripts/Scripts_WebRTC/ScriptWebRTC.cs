@@ -1,10 +1,14 @@
+using System;
 using System.Collections;
+using System.Collections.Concurrent;
+using System.Net.WebSockets;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Unity.WebRTC;
 using UnityEngine;
 using UnityEngine.UI;
-using NativeWebSocket;
+
 
 public class ScriptWebRTC : MonoBehaviour
 {
@@ -22,16 +26,26 @@ public class ScriptWebRTC : MonoBehaviour
     //Representa la conexion WebRTC completa entre Unity y el robot.
     //Gestiona internamente: Cifrado DTLS, control de congestion, ICE, etc.
     //Es el objeto central de la comunicacion punto a punto (P2P).
+    
     private RTCDataChannel dataChannel;
     //Canal de datos bidireccional dentro de la conexion WebRTC
     //Por aqui enviamos las coordenadas al robot en formato JSON
     //y recibimos las coordenadas del brazo robot de vuelta.
     //Es similar a un socket TCP pero integrado en WebRTC sin servidor.
-    private WebSocket webSocket;
+    
+    private ClientWebSocket websocket;
     //Conexion al servidor de signaling de Python
     //SOLO se usará durante el establecimiento inicial de la conexion WebRTC
     //para intercambiar los mensajes SDP e ICE.
     //Una vez conectados P2P, este canal queda inactivo
+
+    private CancellationTokenSource cancelToken;
+    
+    private ConcurrentQueue<string> mensajesPendientes = new ConcurrentQueue<string>();
+    //Cola thread-safe: el hilo de red mete mensajes aqui(Enqueue)
+    //Update() los saca y procesa en el hilo principal (TryDequeue).
+    //Necesaria porque Unity solo permite tocar sus objetos desde el hilo principal.
+    
     private bool conexionEstablecida = false;
     //Flag para proteger los envios por DataChannel antes de que el canal este abierto (evitamos excepciones que controlar)
 
@@ -46,9 +60,7 @@ public class ScriptWebRTC : MonoBehaviour
     // async porque queremos usar await dentro de la funcion.
     async void Start()
     {
-        //Inicializamos el subsistema WebRTC, es obligatorio hacer la llamada antes de crear ninguna conexion ya que lo que esto hace es preparar el entorno de Unity para WebRTC
-        //como es un proceso sincrono, no se necesita yield return
-        WebRTC.Initialize();
+        cancelToken = new CancellationTokenSource();
 
         //Esperamos a que se conecte al servidor de señalizacion de manera asincrona para que la app no se bloquee. 
         await ConectarSignaling();
@@ -61,43 +73,128 @@ public class ScriptWebRTC : MonoBehaviour
     async Task ConectarSignaling() //Es async Task porque websocket.Connect() nos lo devuelve, como no se tocan objetos es seguro de usar
     {
         //Creamos la conexion WebSocket al servidor de signaling
-        websocket = new WebSocket($"ws://{ipRobot}:{puertoWebRTC}/signaling");
-        // "ws://" porque estamos en una red local y no necesitamos certificado SSL, si necesitaramos esto, añadiriamos otra s "wss://"
+        websocket = new ClientWebSocket();
 
-        websocket.OnOpen += () =>
+        try
         {
-            Debug.Log("Se ha conectado al servidor de Python");
-            StartCoroutine(CrearOferta()); //(Como CrearOferta es IEnumerator, necesitamos iniciar la corrutina)
-        };
+            //ConnectAsync establecee la conexion TCP+handshake WebSocket.
+            //await pausa este metodo hasta que conecte sin bloquear Unity.
+            await websocket.ConnectAsync(
+                new Uri($"ws://{ipRobot}:{puertoWebRTC}"),
+                cancelToken.Token
+            );
 
-        websocket.OnMessage += (bytes) =>
+            Debug.Log("WebSocket conectado al servidor de señalizacion");
+
+            //Arrancamos el bucle de recepcion en segundo plano
+            // _ = descarta el Task porque no necesitamos esperarla
+            //El bucle corre indefinidamente hasta que se cancela en OnDestroy
+            _ = BucleRecepcion ();
+
+            //Lanzamos la creación de la oferta WebRTC.
+            //StartCoroutine porque CrearOferta() es IEnumerator
+            //usa yield return con la API Unity WebRTC y debe estar en el hilo principal
+            StartCoroutine(CrearOferta());
+
+        }
+        catch(Exception e)
         {
-            //Se va a disparar cada vez que el servidor de python nos reenvia un mensaje del robot
-            Debug.Log("Mensaje recibido del servidor de Python");
-            ProcesarMensajeSignaling(Encoding.UTF8.GetString(bytes));
-            //Hemos convertido los bytes a String ya que los mensajes que se envien y reciban estarán en formato JSON
-        };
-
-        websocket.OnError += (error) =>
-        {
-            Debug.LogError($"Error en el Signaling de WebSocket: {error}");
-        };
-
-        websocket.OnClose += (code) =>
-        {
-            Debug.Log($"WebSocket cerrado con codigo: {code}");
-        };
-
-        //Await espera a que la conexion TCP+WebSocket se establezca antes de continuar, si no se hiciera esto, podríamos intentar enviar mensajes antes de estar conectados y eso causaría errores.
-        await websocket.Connect();
+            Debug.LogError($"Errorn al conectar WebSocket: {e.Message}");
+            Debug.LogError($"Comprueba que el servidor de señalizacion esta ejecutandose en el PC del robot");
+        }
     }
 
+    //------------------------------------------------------------------
+    //BUCLE DE RECEPCION - Se ejecuta en otro hilo
+    //------------------------------------------------------------------
+    async Task BucleRecepcion()
+    {
+        //Creamos un buffer de 8KB para recibir mensajes
+        //Los mensajes SDP de WebRTC pueden ser varios KB
+        var buffer = new byte[8192];
+
+        while (websocket.State == WebSocketState.Open && !cancelToken.Token.IsCancellationRequested)
+        {
+            try
+            {
+                //ReceiveAsync espera hasta que llegue un mensaje completo.
+                //Durante la espera no bloquea, otros Tasks pueden ejecutarse
+                var resultado = await websocket.ReceiveAsync(
+                    new ArraySegment<byte>(buffer),
+                    cancelToken.Token
+                );
+
+                if(resultado.MessageType == WebSocketMessageType.Close)
+                {
+                    Debug.Log("Servidor de señalizacion cerro la conexion");
+                    break;
+                }
+
+                if(resultado.MessageType == WebSocketMessageType.Text)
+                {
+                    //Convertimos bytes a String y los metemos en la cola
+                    // NO procesamos aqui, estamos en el hilo secundario
+                    // Update() lo procesará en el hilo principal
+                    string mensaje = Encoding.UTF8.GetString(buffer, 0, resultado.Count);
+                    mensajesPendientes.Enqueue(mensaje);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                //Cancelacion normal al destruir el objeto (NO ES UN ERROR)
+                break;
+            }
+            catch (Exception e)
+            {
+                if (!cancelToken.Token.IsCancellationRequested)
+                {
+                    Debug.LogError($"Error en bucle WebSocket: {e.Message}");
+                }
+            }
+        }
+
+    }
+
+
+    //-----------------------------------------------------------------------------------
+    // UPDATE : Procesa mensajes en el hilo principal de Unity
+    //-----------------------------------------------------------------------------------
     void Update()
     {
-        //NativeWebSocket necesita ser llamado por el hilo principal para procesar los mensajes recibidos, sino OnMessage no se disparará
-        websocket?.DispatchMessageQueue();
-        //El "?." es un null-safe, es decir si ese objeto es null, no se hace nada
+        //Vaciamos la cola procesando cada mensaje en el hilo principal.
+        //TryDequeue devuelve false cuando la cola está vacia (while termina)
+        while(mensajesPendientes.TryDequeue(out string mensaje))
+        {
+            ProcesarMensajeSignaling(mensaje);
+        }
     }
+
+    //-------------------------------------------------
+    //ENVIO DE MENSAJES POR WEBSOCKET
+    //-------------------------------------------------
+
+    void EnviarMensajesSignaling(string json)
+    {
+        if(websocket == null || websocket.State != WebSocketState.Open)
+        {
+            Debug.LogWarning("Intento de enviar mensaje con WebSocket no conectado");
+            return;
+        }
+
+        var bytes = Encoding.UTF8.GetBytes(json);
+
+        //SendAsync fire-and-forget: no esperamos confirmacion porque los mensajes
+        //de señalizacion son pequeños y el canal WebSocket es fiable.
+        _ = websocket.SendAsync(
+            new ArraySegment<byte>(bytes),
+            WebSocketMessageType.Text,
+            true,                   //endOfMessage: el mensaje es completo en un solo envio
+            cancelToken.Token
+        );
+    }
+
+
+
 
     //----------------------------------------------
     //PEER CONECTION (El nucleo de la conexión WebRTC)
@@ -124,15 +221,14 @@ public class ScriptWebRTC : MonoBehaviour
         {
             //Cuando la red descubre una posible ruta de red (Candidato), lo enviamos al robot a través del servidor de signaling
             //El robot hará lo mismo y WebRTC probará todas las rutas posibles para elegir la mejor.
-            var msg = JsonUtility.ToJson(new SignalingMessage
+            EnviarMensajesSignaling(JsonUtility.ToJson(new SignalingMessage
             {
                 type = "candidate",
                 candidate = candidato.Candidate,
                 sdpMid = candidato.SdpMid, //identifica a que stream pertenece el candidato
                 sdpMLineIndex = candidato.SdpMLineIndex ?? 0 //Si hay valor toma valor, en caso de null pues pone 0 (es el indice numerico del stream dentro del documento SDP)
-            });
-            //No tiene async ni corrutina porq esta dentro de una funcion lambda
-            websocket.SendText(msg);
+            }));
+            
         };
 
         peerConnection.OnIceConnectionChange = estado =>
@@ -242,7 +338,7 @@ public class ScriptWebRTC : MonoBehaviour
 
         //Enviamos la oferta al robot a través del servidor de signaling.
         //Robot recibira la oferta en OnMessage del WebSocket, generara una respuesta y la devolvera a ESTE codigo.
-        websocket.SendText(JsonUtility.ToJson(new SignalingMessage
+        EnviarMensajesSignaling(JsonUtility.ToJson(new SignalingMessage
         {
             type = "offer",
             sdp = ofertaOp.Desc.sdp
@@ -262,7 +358,7 @@ public class ScriptWebRTC : MonoBehaviour
         {
             msg = JsonUtility.FromJson<SignalingMessage>(json);
         }
-        catch(System.Exception ex)
+        catch(Exception ex)
         {
             Debug.LogError($"Error parseando mensaje de signaling: {ex.Message}");
             return;                              
@@ -307,10 +403,10 @@ public class ScriptWebRTC : MonoBehaviour
 
     IEnumerator AplicarAnswer(string sdp)
         {
-            var desc = new RTCSessionDescription(
+            var desc = new RTCSessionDescription{
                 type = RTCSdpType.Answer,
                 sdp = sdp
-            );
+            };
 
             var op = peerConnection.SetRemoteDescription(ref desc);
             yield return op;
@@ -321,7 +417,7 @@ public class ScriptWebRTC : MonoBehaviour
             }
             else
             {
-                Debug.Log("---- NEGOCIACION WEBRCT COMPLETA - CONEXION P2P ESTABLECIDA -----");
+                Debug.Log("---- NEGOCIACION WEB_RCT COMPLETA - CONEXION P2P ESTABLECIDA -----");
             }
         }
 
@@ -330,8 +426,8 @@ public class ScriptWebRTC : MonoBehaviour
 //---------------------------------------------------------
     /*
         Vamos a enviar la poscion normalizada de la mano y aperturade pinza al robot
-        - <name = "posNormalizada"> x = lateral, y = altura, z = profundidad (todos entre 0 y 1)
-        - <name = "gripper"> 0 = pinza cerrada, 1 = pinza abierta 
+        - <param name = "posNormalizada"> x = lateral, y = altura, z = profundidad (todos entre 0 y 1) </param>
+        - <param name = "gripper"> 0 = pinza cerrada, 1 = pinza abierta </param>
     */
 
     public void EnviarPosicion(Vector3 posNormalizada, float gripper)
@@ -356,10 +452,21 @@ public class ScriptWebRTC : MonoBehaviour
 //------------------------------------------------------------------------
     void OnDestroy()
     {
+        //Cancelamos el token, esto proboca que el BucleRecepcion() termina en su proxima iteracion
+        cancelToken?.Cancel();
+
+        //Cerramos el WebSocket enviando el frame de cierre estándar
+        if(websocket?.State == WebSocketState.Open)
+        {
+            _ = websocket.CloseAsync(
+                WebSocketCloseStatus.NormalClosure,
+                "Aplicacion Cerrando",
+                CancellationToken.None
+            );
+        }
+
         dataChannel?.Close();
         peerConnection?.Close();
-        webSocket?.Close();
-        WebRTC.Dispose(); //Limpiamos los recursos de WebRTC, es importante llamar a esto para evitar fugas de memoria
     }
 
 //------------------------------------------------------------------------
