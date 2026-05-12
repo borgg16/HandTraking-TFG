@@ -2121,6 +2121,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 613883580}
+  - component: {fileID: 613883581}
   m_Layer: 0
   m_Name: PanelDespedida
   m_TagString: Untagged
@@ -2152,6 +2153,26 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &613883581
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 613883579}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dea3d1d85b054844ca77ffbc7bee34e4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PanelDespedida
+  textoTitulo: {fileID: 730895091}
+  textoMensaje: {fileID: 1730784996}
+  textoEstado: {fileID: 591648541}
+  botonVolverInicio: {fileID: 566614444}
+  botonCerrarApp: {fileID: 1656013637}
+  mensajeDespedida: "Gracias por usar el sistema de control.\nLa conexi\xF3n con
+    el brazo robot ha sido cerrada."
+  tiempoCierre: 2
 --- !u!1001 &614799078
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -2284,6 +2305,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 627015454}
+  - component: {fileID: 627015455}
   m_Layer: 0
   m_Name: PanelBienvenida
   m_TagString: Untagged
@@ -2315,6 +2337,19 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &627015455
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 627015453}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 75465907835a1b84cbdcb7645b6483dc, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PanelBienvenida
+  botonEmpezar: {fileID: 1322015491}
 --- !u!1 &670346756
 GameObject:
   m_ObjectHideFlags: 0
@@ -3622,6 +3657,9 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1209520915}
+  - component: {fileID: 1209520918}
+  - component: {fileID: 1209520917}
+  - component: {fileID: 1209520916}
   m_Layer: 0
   m_Name: UIManager
   m_TagString: Untagged
@@ -3644,6 +3682,49 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1209520916
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1209520914}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 86db30c89fba3ac41a38c93b5a5dc86f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MaximoIzquierda
+  ManoIzquierda: {fileID: 1840600293}
+--- !u!114 &1209520917
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1209520914}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 271242aca7d4fe14791148728a42d3da, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::MaximoDerecha
+  ManoDerecha: {fileID: 1647954132}
+--- !u!114 &1209520918
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1209520914}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 95046d8251995a540ba6aea2c5a08e5e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::UIManager
+  panelBienvenida: {fileID: 627015455}
+  panelCalibracion: {fileID: 1950534722}
+  panelControl: {fileID: 1354370589}
+  panelDespedida: {fileID: 613883581}
+  scriptWebRTC: {fileID: 1706806973}
 --- !u!1 &1322015488
 GameObject:
   m_ObjectHideFlags: 0
@@ -3914,6 +3995,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1354370588}
+  - component: {fileID: 1354370589}
   m_Layer: 0
   m_Name: PanelControl
   m_TagString: Untagged
@@ -3944,6 +4026,31 @@ RectTransform:
   m_AnchoredPosition: {x: 0, y: 0}
   m_SizeDelta: {x: 100, y: 100}
   m_Pivot: {x: 0.5, y: 0.5}
+--- !u!114 &1354370589
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1354370587}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7339d8ab3a7d76c4ab48f3d42e30dc06, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PanelControl
+  textoCoordsMano: {fileID: 1950956333}
+  textoPellizcoMano: {fileID: 2130013074}
+  imagenVideo: {fileID: 1536436817}
+  textoCoordsRobot: {fileID: 2044597005}
+  textoPellizcoRobot: {fileID: 227647453}
+  botonVolverCalibrar: {fileID: 15970619}
+  botonAlPulsarFinalizar: {fileID: 866454862}
+  colorReposo: {r: 1, g: 1, b: 1, a: 1}
+  colorPellizco: {r: 0, g: 1, b: 0, a: 1}
+  colorRobot: {r: 0, g: 1, b: 1, a: 1}
+  distanciaMinPinza: 0.01
+  distanciaMaxPinza: 0.08
+  umbralPellizco: 0.2
 --- !u!1 &1381706877
 GameObject:
   m_ObjectHideFlags: 0
@@ -4262,6 +4369,21 @@ Transform:
   m_CorrespondingSourceObject: {fileID: 2321527512367231968, guid: 3f7511fbc40ae7a4b89c3298a3de199d, type: 3}
   m_PrefabInstance: {fileID: 1647954130}
   m_PrefabAsset: {fileID: 0}
+--- !u!4 &1647954132 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 2721691953714425675, guid: 3f7511fbc40ae7a4b89c3298a3de199d, type: 3}
+  m_PrefabInstance: {fileID: 1647954130}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &1647954133 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 3288495761867447508, guid: 3f7511fbc40ae7a4b89c3298a3de199d, type: 3}
+  m_PrefabInstance: {fileID: 1647954130}
+  m_PrefabAsset: {fileID: 0}
+--- !u!4 &1647954134 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: 4114692932810539891, guid: 3f7511fbc40ae7a4b89c3298a3de199d, type: 3}
+  m_PrefabInstance: {fileID: 1647954130}
+  m_PrefabAsset: {fileID: 0}
 --- !u!1 &1656013634
 GameObject:
   m_ObjectHideFlags: 0
@@ -4542,6 +4664,53 @@ CanvasRenderer:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1681463161}
   m_CullTransparentMesh: 1
+--- !u!1 &1706806972
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1706806974}
+  - component: {fileID: 1706806973}
+  m_Layer: 0
+  m_Name: WebRTC
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1706806973
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1706806972}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 75fca1050ba781343b12c4e4f17fc126, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ScriptWebRTC
+  ipRobot: 192.168.4.2
+  puertoWebRTC: 8080
+  imagenVideo: {fileID: 1536436817}
+--- !u!4 &1706806974
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1706806972}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: -0, z: -0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!4 &1711232459 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: 5888765399538998960, guid: ad818c36731146e994540a1896ad8f24, type: 3}
@@ -4923,6 +5092,7 @@ GameObject:
   - component: {fileID: 1950534720}
   - component: {fileID: 1950534719}
   - component: {fileID: 1950534721}
+  - component: {fileID: 1950534722}
   m_Layer: 0
   m_Name: PanelCalibracion
   m_TagString: Untagged
@@ -5016,6 +5186,28 @@ MonoBehaviour:
   m_ChildScaleWidth: 0
   m_ChildScaleHeight: 0
   m_ReverseArrangement: 0
+--- !u!114 &1950534722
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1950534717}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ed3b028394174d041bcde6effe0bdc64, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::PanelCalibracion
+  textoCalibracion: {fileID: 559778762}
+  botonIzquierda: {fileID: 134493645}
+  botonDerecha: {fileID: 1088320467}
+  maximoIzquierda: {fileID: 1209520916}
+  maximoDerecha: {fileID: 1209520917}
+  thumbTipIzquierda: {fileID: 242498798}
+  indexTipIzquierda: {fileID: 1934539663}
+  thumbTipDerecha: {fileID: 1647954134}
+  indexTipDerecha: {fileID: 1647954133}
+  distanciaPellizco: 0.02
 --- !u!1 &1950956331
 GameObject:
   m_ObjectHideFlags: 0
@@ -5829,3 +6021,4 @@ SceneRoots:
   - {fileID: 1452151150}
   - {fileID: 707692914}
   - {fileID: 975352653}
+  - {fileID: 1706806974}
