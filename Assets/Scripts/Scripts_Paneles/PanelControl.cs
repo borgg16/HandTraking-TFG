@@ -1,38 +1,29 @@
+using System;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
 public class PanelControl : MonoBehaviour
 {
-    [Header("Columna Mano — izquierda")]
-    [Tooltip("Coordenadas normalizadas actuales de la mano (0-1)")]
+    [Header("Columna Mano")]
     public TextMeshProUGUI textoCoordsMano;
-
-    [Tooltip("Indicador de pellizco — cambia de color cuando se detecta")]
     public TextMeshProUGUI textoPellizcoMano;
 
-    [Header("Columna Vídeo — centro")]
-    [Tooltip("RawImage donde se mostrará el feed de la cámara del robot")]
+    [Header("Columna Vídeo")]
     public RawImage imagenVideo;
 
-    [Header("Columna Robot — derecha")]
-    [Tooltip("Coordenadas actuales del brazo robot (0-1)")]
+    [Header("Columna Robot")]
     public TextMeshProUGUI textoCoordsRobot;
-
-    [Tooltip("Indicador de acción del robot — cambia de color cuando se mueve")]
     public TextMeshProUGUI textoPellizcoRobot;
 
-    [Header("Botones")]
-    [Tooltip("Pausa el control y vuelve a la calibración")]
+    [Header("Barra Inferior")]
     public Button botonVolverCalibrar;
-
-    [Tooltip("Cierra la conexión WebRTC y muestra el panel de despedida")]
-    public Button botonFinalizarConexion;
+    public Button botonAlPulsarFinalizar;
 
     [Header("Colores")]
-    public Color colorReposo   = Color.white;
-    public Color colorPellizco = Color.green;
-    public Color colorAccionRobot = Color.cyan;
+    public Color colorReposo     = Color.white;
+    public Color colorPellizco   = Color.green;
+    public Color colorRobot      = Color.cyan;
 
     [Header("Umbrales de pinza")]
     [Tooltip("Distancia en metros para pinza CERRADA")]
@@ -41,16 +32,13 @@ public class PanelControl : MonoBehaviour
     [Tooltip("Distancia en metros para pinza ABIERTA")]
     public float distanciaMaxPinza = 0.08f;
 
-    [Tooltip("Valor normalizado (0-1) por debajo del cual se considera pellizco activo")]
+    [Tooltip("Valor de gripper (0-1) por debajo del cual se considera pellizco")]
     [Range(0f, 1f)]
     public float umbralPellizco = 0.2f;
 
-    [Header("Referencias a otros paneles")]
-    [Tooltip("UIManager para reiniciar la calibración")]
-    public UIManager uiManager;
-
-    [Tooltip("Panel de despedida — se activa al finalizar la conexión")]
-    public GameObject panelDespedida;
+    //EVENTOS PARA LOS CAMBIOS DE PANELES
+    public event Action OnVolverCalibrar;
+    public event Action OnFinalizar;
 
     //----- CAMPOS PRIVADOS ------
     private MaximoEstiramiento manoCalibrada;
@@ -62,15 +50,15 @@ public class PanelControl : MonoBehaviour
     private Vector3 ultimaPosRobot = Vector3.zero;
 
     //--------------------------------------------------
-    //INICIALIZACION - LLAMADO por UIManager.CerrarPanel()
+    //INICIALIZACION - LLAMADO por panelCalibracion.CerrarPanel()
     //--------------------------------------------------
 
-    public void Iniciar(MaximoEstiramiento calibrada, ScriptWebRTC rtc, Transform thumb, Transform index)
+    public void Iniciar(DatosCalibracion datos, ScriptWebRTC rtc)
     {
-        manoCalibrada = calibrada;
-        scriptWebRTC = rtc;
-        thumbTip = thumb;
-        indexTip = index;
+        manoCalibrada = datos.manoCalibrada;
+        thumbTip      = datos.thumbTip;
+        indexTip      = datos.indexTip;
+        scriptWebRTC  = rtc;
 
         //Obtenemos el Transform de la mano segun la subclase
         var izquierda = manoCalibrada.GetComponent<MaximoIzquierda>();
@@ -96,8 +84,8 @@ public class PanelControl : MonoBehaviour
         scriptWebRTC.OnCoordenadasRobot += ActualizarCoordsRobot;
 
         //Listeners de botones
-        if(botonVolverCalibrar!= null) botonVolverCalibrar.onClick.AddListener(VolverACalibracion);
-        if(botonFinalizarConexion != null) botonFinalizarConexion.onClick.AddListener(FinalizarConexion);
+        if(botonVolverCalibrar!= null) botonVolverCalibrar.onClick.AddListener(AlPulsarVolverCalibrar);
+        if(botonAlPulsarFinalizar != null) botonAlPulsarFinalizar.onClick.AddListener(AlPulsarFinalizar);
 
         //Textos Iniciales
         if(textoCoordsMano != null) textoCoordsMano.text     = "X: --\nY: --\nZ: --\nPinza: --";
@@ -182,7 +170,7 @@ public class PanelControl : MonoBehaviour
         if(textoPellizcoRobot != null)
         {
             textoPellizcoRobot.text = robotMoviendo ? "ROBOT EN MOVIMIENTO" : "Robot en reposo";
-            textoPellizcoRobot.color = robotMoviendo ? colorAccionRobot : colorReposo;
+            textoPellizcoRobot.color = robotMoviendo ? colorRobot : colorReposo;
         }
 
         ultimaPosRobot = coords;
@@ -191,12 +179,26 @@ public class PanelControl : MonoBehaviour
     //-------------------------------------------------------------
     //BOTON - VOLVER A CALIBRAR
     //-------------------------------------------------------------
-    void VolverACalibracion()
+    
+    void AlPulsarVolverCalibrar()
     {
-        //Pausamos el envio de datos
         controlActivo = false;
+        LimpiarTextos();
+        OnVolverCalibrar?.Invoke();
+        Debug.Log("PanelControl: notificando UIManager → volver a calibrar");
+    }
 
-        //Reseteamos textos
+    void AlPulsarFinalizar()
+    {
+        controlActivo = false;
+        LimpiarTextos();
+        OnFinalizar?.Invoke();
+        Debug.Log("PanelControl: notificando UIManager → finalizar conexión");
+    }
+
+    void LimpiarTextos()
+    {
+         //Reseteamos textos
         if(textoCoordsMano != null) textoCoordsMano.text = "Mano: (calibración en curso...)";
         if(textoCoordsRobot != null) textoCoordsRobot.text = "Brazo: (en espera...)";
         if(textoPellizcoMano != null)
@@ -209,52 +211,8 @@ public class PanelControl : MonoBehaviour
             textoPellizcoRobot.text = "*En Pausa";
             textoPellizcoRobot.color = colorReposo;
         }
-
-        gameObject.SetActive(false);
-
-        if(uiManager == null)
-        {
-            Debug.LogError("PanelControl: uiManager no asignado en el Inspector");
-            return;
-        }
-
-        uiManager.IniciarCalibracion();
-        Debug.Log("Control Pausado - volviendo a calibración");
     }
 
-    //---------------------------------------------------------------
-    //BOTON - FINALIZAR CONEXION
-    //---------------------------------------------------------------
-
-    void FinalizarConexion()
-    {
-        //Detectamos el envio de los datos inmediatamente
-        controlActivo = false;
-
-        Debug.Log("Finalizando conexion WebRTC...");
-
-        //Comprobacion de seguridad
-        if(panelDespedida == null)
-        {
-            Debug.LogError("PanelControl: panelDespedida no asignado en el inspector");
-            return;
-        }
-
-        //Desactivamos este panel
-        gameObject.SetActive(false);
-
-        //Activamos el panel de despedida y lo iniciamos
-        panelDespedida.SetActive(true);
-        var scriptDespedida = panelDespedida.GetComponent<panelDespedida>();
-        if(scriptDespedida != null)
-        {
-            scriptDespedida.Iniciar(scriptWebRTC);
-        }
-        else
-        {
-            Debug.LogError("PanelControl: el panelDespedida no tiene componente PanelDespedida");
-        }
-    }
 
     //--------------------------------------------------------------------
     //LIMPIEZA
@@ -269,12 +227,12 @@ public class PanelControl : MonoBehaviour
 
         if(botonVolverCalibrar != null)
         {
-            botonVolverCalibrar.onClick.RemoveListener(VolverACalibracion);
+            botonVolverCalibrar.onClick.RemoveListener(AlPulsarVolverCalibrar);
         }
 
-        if(botonFinalizarConexion != null)
+        if(botonAlPulsarFinalizar != null)
         {
-            botonFinalizarConexion.onClick.RemoveListener(FinalizarConexion);
+            botonAlPulsarFinalizar.onClick.RemoveListener(AlPulsarFinalizar);
         }
     }
 }

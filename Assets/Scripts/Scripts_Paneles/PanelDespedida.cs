@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using System.Collections;
 using UnityEngine.UI;
@@ -6,37 +7,29 @@ using TMPro;
 public class PanelDespedida : MonoBehaviour
 {
     [Header("Textos")]
-    [Tooltip("Texto principal del panel")]
     public TextMeshProUGUI textoTitulo;
-
-    [Tooltip("Mensaje de despedida personalizable")]
     public TextMeshProUGUI textoMensaje;
-
-    [Tooltip("Muestra el estado del cierre de conexión en tiempo real")]
     public TextMeshProUGUI textoEstado;
 
     [Header("Botones")]
-    [Tooltip("Vuelve al panel de bienvenida para iniciar una nueva sesión")]
     public Button botonVolverInicio;
-
-    [Tooltip("Cierra la aplicación completamente")]
     public Button botonCerrarApp;
-
-    [Header("Paneles")]
-    [Tooltip("Panel de bienvenida — para volver al inicio")]
-    public GameObject panelBienvenida;
-
-    [Tooltip("Referencia al ScriptWebRTC para cerrar la conexión")]
-    public ScriptWebRTC scriptWebRTC;
 
     [Header("Configuración")]
     [Tooltip("Mensaje personalizable que aparece en la pantalla de despedida")]
     [TextArea(2, 4)]
     public string mensajeDespedida = "Gracias por usar el sistema de control.\n"+
-                                     "La conexión con el brazo robot ha sido cerrada.";
+                                    "La conexión con el brazo robot ha sido cerrada.";
 
-    [Tooltip("Segundos que tarda el cierre antes de mostrar los botones")]
+    [Tooltip("Segundos que tarda la secuencia de cierre")]
     public float tiempoCierre = 2f;
+
+    //EVENTOS PUBLICOS
+    public event Action OnVolverInicio;
+    public event Action OnCerrarApp;
+
+    //CAMPO PRIVADO
+    private ScriptWebRTC scriptWebRTC;
 
     //---------------------------------------------
     //INICIACION DEL PROCESO DE CIERRE
@@ -56,9 +49,9 @@ public class PanelDespedida : MonoBehaviour
 
         //Registramos los listeners de los botones
         if (botonVolverInicio != null)
-            botonVolverInicio.onClick.AddListener(VolverAlInicio);
+            botonVolverInicio.onClick.AddListener(AlPulsarVolverInicio);
         if (botonCerrarApp != null)
-            botonCerrarApp.onClick.AddListener(CerrarAplicacion);
+            botonCerrarApp.onClick.AddListener(AlPulsarCerrarApp);
 
         //Lanzamos la secuencia de cierre
         StartCoroutine(SecuenciaCierre());
@@ -103,34 +96,17 @@ public class PanelDespedida : MonoBehaviour
     //---------------------------------------------
     //ACCIONES DE LOS BOTONES
     //---------------------------------------------
-    void VolverAlInicio()
+    void AlPulsarVolverInicio()
     {
-        //Volvemos al panel de bienvenida para iniciar una nueva sesion.
-        //No recargamos la escena, simplemente activamos el panel de bienvenida
-        if(panelBienvenida == null)
-        {
-            Debug.LogError("Panel Despedida: panelBienvenida no asignado en el Inspector");
-            return;
-        }
-
-        panelBienvenida.SetActive(true);
-        gameObject.SetActive(false);
-
-        Debug.Log("Volviendo al panel de bienvenida");    
+        OnVolverInicio?.Invoke();
+        Debug.Log("PanelDespedida: notificando UIManager -> volver al inicio");
     }
 
 
-    void CerrarAplicacion()
+    void AlPulsarCerrarApp()
     {
-        Debug.Log("Cerrando Aplicación...");
-        //Application.Quit() cierra la aplicacion en el dispositivo
-        //En el editor de Unity no cierra nada, es el comportamiento correcto
-        //para pruebas (no queremos cerrar el editor accidentalmente)
-        #if UNITY_EDITOR
-            UnityEditor.EditorApplication.isPlaying = false;
-        #else
-            Application.Quit();
-        #endif
+        OnCerrarApp?.Invoke();
+        Debug.Log("PanelDespedida: notificando UIManager -> cerrar aplicación");
     }
 
 
@@ -141,9 +117,9 @@ public class PanelDespedida : MonoBehaviour
     void OnDestroy()
     {
         if (botonVolverInicio != null)
-            botonVolverInicio.onClick.RemoveListener(VolverAlInicio);
+            botonVolverInicio.onClick.RemoveListener(AlPulsarVolverInicio);
         if (botonCerrarApp != null)
-            botonCerrarApp.onClick.RemoveListener(CerrarAplicacion);
+            botonCerrarApp.onClick.RemoveListener(AlPulsarCerrarApp);
     }
 
 }
