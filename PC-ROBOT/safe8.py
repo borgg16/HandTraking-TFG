@@ -1,8 +1,7 @@
 import cv2
 import mediapipe as mp
 import math
-import requests
-import urllib.parse
+import serial
 import argparse
 import time
 import json
@@ -54,6 +53,59 @@ PINKY_PIP_LM  = mp_hands.HandLandmark.PINKY_PIP
 
 def clamp(v, vmin, vmax):
     return max(vmin, min(vmax, v))
+
+#------ COMUNICACION SERIAL --------------------
+def crear_conexion_serial(puerto, baudrate= 115200):
+    """
+    Abre la conexion con el robot por puerto serial
+    
+    puerto: 'COM3','COM4'...
+    baudrate: velocidad de comunicacion. Por defecto RoArm M2 usa 115200.
+    
+    timeout=1: si no hay respuesta en 1 segundo, no se bloquea indefinidamente.
+    """
+    try:
+        ser = serial.Serial(puerto, baudrate, timeout=1)
+        time.sleep(2)
+        #El sleep de 2 segundos es necesario porque algunos Arduinos/ESP32 se reinician
+        #al conectarlo por puerto serie y necesitan un tiempo para volver a arrancar
+        print(f"CONEXION SERIAL ABIERTA: {puerto} @ {baudrate} baud")
+        return ser
+    except serial.SerialException as e:
+        print(f"ERROR ABRIENDO PUERTO SERIAL {puerto}: {e}")
+        return None
+
+
+def enviar_comando_serial(ser,data):
+    """
+    Envia un diccionario JSON al robot por puerto serial.
+    
+    Añadimos '\n' al final porque el firmware del robot usa el salto de línea
+    como delimitador de mensaje, sabe que el comando está completo cuando
+    recibe '\n', igual que una terminal de comandos.
+    
+    encode('utf-8'): convierte el string a bytes, que es lo que el puerto
+    serial puede transmitir (los puertos serial trabajan con bytes, no strings).
+    """
+    try:
+        json_str = json.dumps(data) + '\n'
+        ser.write(json_str.encode('utf-8'))
+
+        if TRACE_ENABLED:
+            print(f"SERIAL SEND: {json_str.strip()}")
+
+        # readline() espera hasta recibir '\n' o hasta que pase el timeout.
+        # Si el robot no responde, simplemente devuelve b'' sin bloquear.
+        respuesta = ser.readline().decode('utf-8', errors='ignore').strip()
+        if respuesta and TRACE_ENABLED:
+            print(f"SERIAL RECV: {respuesta}")
+
+        return respuesta
+
+    except serial.SerialException as e:
+        print(f"[SERIAL] Error enviando comando: {e}")
+        return None
+
 
 
 def calcular_xyz_cm(hand_landmarks, image_shape):
@@ -120,21 +172,6 @@ def calcular_angulo_pinza(hand_landmarks, image_shape, base_px):
     t = T_CLOSED + (T_OPEN - T_CLOSED) * norm
 
     return t, ratio
-
-
-def enviar_comando_http(ip_addr, data):
-    """Envía un diccionario JSON como comando HTTP:
-    GET http://<ip>/js?json=<json>
-    """
-    json_str = json.dumps(data)
-    encoded_cmd = urllib.parse.quote(json_str)
-    url = f"http://{ip_addr}/js?json={encoded_cmd}"
-    try:
-        r = requests.get(url, timeout=0.1)
-        return r.text
-    except Exception as e:
-        print(f"[HTTP] Error enviando comando: {e}")
-        return None
 
 
 # ===================== GESTOS MANO IZQUIERDA =====================
@@ -243,20 +280,28 @@ def detectar_gesto_mano_izquierda(hand_landmarks, image_shape, handed_label="Lef
 
 def main():
     parser = argparse.ArgumentParser(description="Control del RoArm M2 con mano (Mediapipe + HTTP)")
-    parser.add_argument("ip", type=str, help="IP del robot, por ejemplo 192.168.4.1")
+    parser.add_argument("puerto", type=str, help="Puerto serial del robot. Ejemplo: COM3")
+    parser.add_argument("--baudrate", type=int, default=115200, help="Velocidad del puerto serial (default: 115200)")
     parser.add_argument("--camera", type=int, default=0, help="Índice de cámara (0 por defecto)")
     parser.add_argument("--freq", type=float, default=50.0,
                         help="Frecuencia máxima de envío de comandos (Hz)")
     args = parser.parse_args()
 
-    ip_addr = args.ip
     cam_index = args.camera
     max_hz = args.freq
     min_dt = 1.0 / max_hz if max_hz > 0 else 0.0
+    
+    #Abrimos la conexion serial
+    ser = crear_conexion_serial(args.puerto, args.baudrate)
+    if ser is None:
+        return #Si conexion serial falla no podemos seguir
 
+
+#---- CAMARA -------------------------------------------------
     cap = cv2.VideoCapture(cam_index)
     if not cap.isOpened():
         print("❌ No se pudo abrir la cámara")
+        ser.close()
         return
 
     width  = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
@@ -269,6 +314,7 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FOCAL_PX/2)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FOCAL_PX/4)
 
+#---- MEDIAPIPE -----------------------------------------------
     # Ahora permitimos hasta 2 manos
     hands = mp_hands.Hands(
         static_image_mode=False,
@@ -278,20 +324,21 @@ def main():
     )
     mp_draw = mp.solutions.drawing_utils
 
+#---- VARIABLES DE CONTROL -----------------------------------
+
     last_send_time = 0.0
     max_interval_total = 0.0              # <<< máximo intervalo global
     comandos = deque()                    # <<< guarda tiempos de envío (último segundo)
 
     print("✅ Empezando. Pulsa 'q' para salir.")
 
-    comandos = deque()
-
     # Para que el cuadro se mantenga entre frames
     rect_pos = None  # (x, y, w, h)
 
     texto3 = ""
     numComandos = 0
-    frame_idx = 0
+
+#---- BUCLE PRINCIPAL ---------------------------------------
 
     while True:
         startTime= time.time()
@@ -387,8 +434,8 @@ def main():
                             }
                             
                             print("5.{0}".format(time.time()-startTime))   
-                            resp = enviar_comando_http(ip_addr, cmd)
-                            resp = []
+                            resp = enviar_comando_serial(ser, cmd)
+
                             if resp is not None and TRACE_ENABLED:
                                 print(f"SEND (Right): {cmd}  RECV: {resp}")
                             last_receive_time = now
@@ -483,9 +530,12 @@ def main():
         print("8.{0}".format(time.time()-startTime))
 
     cap.release()
-    print("9.{0}".format(time.time()-startTime))
     cv2.destroyAllWindows()
-    print("10.{0}".format(time.time()-startTime))
+
+    # AÑADIDO: cerramos el puerto serial limpiamente al salir
+    if ser and ser.is_open:
+        ser.close()
+        print("Puerto serial cerrado")
 
 
 if __name__ == "__main__":
