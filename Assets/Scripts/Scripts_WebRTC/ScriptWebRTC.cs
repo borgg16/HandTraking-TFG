@@ -14,7 +14,7 @@ public class ScriptWebRTC : MonoBehaviour
 {
     [Header("Configuración de Red")]
     [Tooltip("Dirección IP local del PC del Robot. Consultar con 'ipconfig' (Windows) o con 'ip a' (Linux)")] //Muestra texto de ayuda emergente en el inspector para explicar la función de esta variable
-    public string ipRobot = "192.168.4.1"; //TODO: No sabemos la IP aún
+    public string ipRobot = "192.168.1.124"; //TODO: No sabemos la IP aún
     public int puertoWebRTC = 8080;
 
     [Header("Panel de Control")]
@@ -75,14 +75,17 @@ public class ScriptWebRTC : MonoBehaviour
         //Creamos la conexion WebSocket al servidor de signaling
         websocket = new ClientWebSocket();
 
+        //LINEAS PARA INTENTAR CORREGIR COMPATIBILIDAD DE .NET CON LIBRERIA WEBRTC DE PY
+        websocket.Options.KeepAliveInterval = TimeSpan.Zero;
+
+
         try
         {
             //ConnectAsync establecee la conexion TCP+handshake WebSocket.
             //await pausa este metodo hasta que conecte sin bloquear Unity.
-            await websocket.ConnectAsync(
-                new Uri($"ws://{ipRobot}:{puertoWebRTC}"),
-                cancelToken.Token
-            );
+            var uri = new Uri($"ws://{ipRobot}:{puertoWebRTC}/");
+            Debug.Log($"Intentando conectar a: {uri}");
+            await websocket.ConnectAsync(uri, cancelToken.Token);
 
             Debug.Log("WebSocket conectado al servidor de señalizacion");
 
@@ -99,8 +102,10 @@ public class ScriptWebRTC : MonoBehaviour
         }
         catch(Exception e)
         {
-            Debug.LogError($"Errorn al conectar WebSocket: {e.Message}");
-            Debug.LogError($"Comprueba que el servidor de señalizacion esta ejecutandose en el PC del robot");
+            Debug.LogError($"Error WebSocket: {e.GetType().Name}");
+            Debug.LogError($"Mensaje: {e.Message}");
+            Debug.LogError($"Inner: {e.InnerException?.Message}");
+            Debug.LogError($"Stack: {e.StackTrace}");
         }
     }
 
