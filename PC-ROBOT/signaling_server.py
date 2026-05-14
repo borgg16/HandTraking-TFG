@@ -1,5 +1,5 @@
 import asyncio
-import websockets
+from aiohttp import web, WSMsgType
 import json
 import logging
 
@@ -28,70 +28,111 @@ PORT = 8080
 
 #Usaremos un set para guardar todos los clientes conectados actualmente.
 #Con set evitamos duplicados automaticamente
-clients : set = set()
+clientes = set()
 
-async def handler(websocket):
+async def handler(request):
     """
     Se ejecuta una vez por cada cliente que se conecta.
-    Añade el cliente al set, reenvía sus mensajes al resto,
-    y lo elimina cuando se desconecta.
+    aiohttp llama a esta funcion automaticamente cuando llega una nueva conexion HTTP
+    con cabecera de upgrade a WebSocket
+    
+    El flujo es el siguiente:
+        1. Preparamos el WebSocket (Completando el handshake HTTP->WebSocket)
+        2. Añadimos el cliente al set
+        3. Esperamos mensajes en el bucle
+        4. Cada mensaje lo reenviamos a todos los clientes (menos a mi mismo)
+        5. Al desconectarse lo eliminamos del set    
     """
-    #Identificamos al cliente por su direccion IP y puerto
-    client_id = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
-    clients.add(websocket)
-    log.info(f"Cliente conectado: {client_id} (total: {len(clients)})")
+    # PREPARAR EL WEBSOCKET ----------------------------------------------
+    ws = web.WebSocketResponse()
+    #web.WebSocketResponse() es el objeto WebSocket de aiohttp
+    #cuando Unity hace ConnectAsync(), llega aqui como una peticion HTTP
+    #con cabecera "Upgrade: websocket". aiohttp la convierte automaticamente
+    #en un WebSocket, que es lo que Unity espera
     
+    await ws.prepare(request)
+    #prepare() completa el handshake HTTP->WebSocket respondiendo con el codigo
+    # 101 Switching protocols. Unity reconoce esta respuesta y da por establecida
+    #la conexion WebSocket.
+    #Sin este paso Unity no puede completar el ConnectAsync()
+    
+    # REGISTRAMOS EL CLIENTE ----------------------------------------------
+    clientes.add(ws)
+    cliente_id = f"{request.remote}"
+    #Request remote contiene la IP y el puerto del cliente que se conecto
+    
+    log.info(f"Cliente Conectado: {cliente_id} (total: {len(clientes)})")
+    
+    # BUCLE DE RECEPCION DE MENSAJES --------------------------------------
     try:
-        async for message in websocket:
-            #Parseamos el JSON para poder logear el tipo de mensaje
-            #Sin necesidad de logear el SDP completo
-            try:
-                data = json.loads(message)
-                msg_type = data.get("type","desconocido")
-                log.info(f"{client_id} -> todos: tipo='{msg_type}'")
-            except json.JSONDecodeError:
-                log.warning(f"Mensaje no-JSON recibido de {client_id}")
+        async for msg in ws:
+            if msg.type == WSMsgType.TEXT:
+                #Mensaje de texto recibido, parseamos el JSON
+                #Los mensajes de señalizacion son: "offer", "answer", "candidate"
+                try:
+                    data = json.loads(msg.data)
+                    tipo = data.get("type","desconocido")
+                    log.info(f"{cliente_id} -> tipo: '{tipo}'")
+                except json.JSONDecodeError:
+                    log.warning(f"Mensaje no-JSON recibido del cliente: {cliente_id}")
+                # REENVIAMOS EL MENSAJE A TODOS LOS DEMAS
+                destinatarios = [c for c in clientes if c is not ws]
+                
+                if destinatarios:
+                    #Enviamos el mensaje tal cual al destinatario
+                    for dest in destinatarios:
+                        await dest.send_str(msg.data)
+                else:
+                    #Si no hay destinatarios, el otro extremo aun no se conecto
+                    log.warning(f"No hay destinatarios, {cliente_id} esta SOLO")
             
-            #Reenviamos el mensaje a TODOS los demas clientes conectados.
-            #"clients - {websocket}" excluye directamente al emisor del conjunto
-            #En nuestro caso hay dos clientes (Gafas(Proyecto Unity) y el Robot)
-            #Asi que cada mensaje llega exactamente al otro extremo
-            destinatarios = clients - {websocket}
-            if destinatarios:
-                #websockets.gather envia a multiples clientes en paralelo
-                await asyncio.gather(
-                    *[dest.send(message) for dest in destinatarios],
-                    return_exceptions=True #Si el cliente se desconecta no falla
-                )
-            else:
-                log.warning(f"No hay destinatarios para el mensaje de {client_id}")
+            elif msg.type == WSMsgType.ERROR:
+                #Error en el WebSocket del cliente
+                log.error(f"Error WebSocket de {cliente_id}: {ws.exception()}")
+                
+            elif msg.type == WSMsgType.CLOSE:
+                #Cliente cerro la conexion limpiamente
+                log.info(f"Cliente cerro la conexion: {cliente_id}")
     
-    except websockets.exceptions.ConnectionClosed as e:
-        log.info(f"Cliente deconectado normalmente: {client_id} (codigo de error: {e.code})")
-
     except Exception as e:
-        log.error(f"Error con cliente {client_id}: {e}")
-    
+        log.error(f"Error inesperado con {cliente_id} : {e}")
+        
     finally:
-        #Siempre eliminamos el cliente del set, aunque haya habido error.
-        #Sin esto, el set creceria indefinidamente con referencias muertas
-        clients.discard(websocket)
-        log.info(f"Cliente eliminado: {client_id} (total: {len(clients)})")
+        #LIMPIAMOS AL DESCONECTARSE DEL SERVER
+        clientes.discard(ws) #Elimina del set sin lanzar error
+        log.info(f"Cliente eliminado: {cliente_id} (total: {len(clientes)})")
+
+    return ws
+
 
 #--------------------------------------------------------------------------
 # INICIAMOS EL SERVIDOR
 #--------------------------------------------------------------------------
 
 async def main():
+    # Creamos la aplicacion de aiohttp ------------------------------------
+    app = web.Application()
+    
+    # Registramos la ruta "/" ---------------------------------------------
+    app.router.add_get("/",handler)
+    #Cuando Unity hace ConnectAsync("ws://IP:8080"), internamente
+    #hace una peticion GET a "ws://IP:8080/" con cabecera Upgrade: webSocket
+    #Esta linea le dice a aiohttp que cuando llegue un GET a '/', llama a handler()
+    
+    # Configuramos el Runner ----------------------------------------------
+    runner = web.AppRunner(app) #Gestiona el "ciclo de vida" del server
+    await runner.setup()
+    
+    # Creamos el sitio TCP -------------------------------------------------
+    site = web.TCPSite(runner, HOST, PORT)
+    await site.start()
+    
     log.info(f"Iniciando servidor de señalizacion  en ws://{HOST}:{PORT}")
     log.info("Esperando conexiones de Unity y el Robot...")
     
-    #websockets.serve crea el servidor WebSocket y llama a handler()
-    #por cada nueva conexion entrante
-    #El servidor corre indefinidamente hasta Ctrl+C
-    async with websockets.serve(handler,HOST,PORT):
-        log.info(f"--- SERVIDOR LISTO EN ws://{HOST}:{PORT}")
-        await asyncio.Future() #Esta es la funcion que espera indefinidamente hasta Ctrl+C
+    # Esperamos indefinidamente -------------------------------------------
+    await asyncio.Future()
+    
 
 if __name__ == "__main__":
     try:
