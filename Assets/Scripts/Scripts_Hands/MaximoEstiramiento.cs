@@ -6,13 +6,31 @@ public abstract class MaximoEstiramiento : MonoBehaviour
 {
     protected Transform mano; //Esta Protected para que solo o mi propia clase o las hijas puedan acceder a dicha variable, esto es importante para mantener la encapsulacion y evitar que otras clases puedan modificar esta variable de manera indebida, lo que podria causar errores o comportamientos inesperados en el juego. Al hacerla protected, se garantiza que solo las clases que heredan de MaximoEstiramiento puedan acceder a esta variable, lo que mejora la seguridad y la integridad del código.
     public Vector3 maximoEstiramiento { get; private set; } //Esta propiedad es de solo lectura para otras clases, lo que significa que solo se puede establecer dentro de esta clase, lo que garantiza que el valor del maximo estiramiento no pueda ser modificado por otras clases, lo que mejora la seguridad y la integridad del código. Al hacerla pública, se permite que otras clases puedan acceder a este valor para realizar cálculos o tomar decisiones basadas en el máximo estiramiento, pero sin permitir que lo modifiquen directamente.
-    public bool guardado { get; private set; } = false; //Esta propiedad es de solo lectura para otras clases, lo que significa que solo se puede establecer dentro de esta clase, lo que garantiza que el valor de guardado no pueda ser modificado por otras clases, lo que mejora la seguridad y la integridad del código. Al hacerla pública, se permite que otras clases puedan acceder a este valor para realizar cálculos o tomar decisiones basadas en si el máximo estiramiento ha sido guardado o no, pero sin permitir que lo modifiquen directamente.
+    public Vector3 posturaNeutra {get; private set;}
+    public Vector3 rangoMin {get; private set;}
+    public Vector3 rangoMax {get; private set;}
 
+    public bool neutroGuardado {get; private set;} = false;
+    public bool guardado { get; private set; } = false; //Esta propiedad es de solo lectura para otras clases, lo que significa que solo se puede establecer dentro de esta clase, lo que garantiza que el valor de guardado no pueda ser modificado por otras clases, lo que mejora la seguridad y la integridad del código. Al hacerla pública, se permite que otras clases puedan acceder a este valor para realizar cálculos o tomar decisiones basadas en si el máximo estiramiento ha sido guardado o no, pero sin permitir que lo modifiquen directamente.
+    public bool exploracionGuardada {get; private set;} = false;
+
+    public bool explorandoInicializado = false;
     protected abstract Transform ObtenerMano(); //Este metodo es abstracto, lo que significa que las clases que hereden de MaximoEstiramiento deben implementar este metodo para obtener la referencia a la mano correspondiente, esto es importante para garantizar que cada clase hija pueda proporcionar su propia implementacion de como obtener la mano, lo que mejora la flexibilidad y la reutilizacion del codigo.
 
     void Start()
     {
         mano = ObtenerMano(); //Obtenemos la referencia a la mano utilizando el metodo abstracto, esto es importante para garantizar que cada clase hija pueda proporcionar su propia implementacion de como obtener la mano, lo que mejora la flexibilidad y la reutilizacion del codigo.
+    }
+
+    public void GuardarNeutro()
+    {
+        if(mano == null)
+        {
+            Debug.LogError($"{gameObject.name}: mano es null");
+        }
+        posturaNeutra = mano.position;
+        neutroGuardado = true;
+        Debug.Log($"Postura neutra guardada en {gameObject.name}: {mano.position}");
     }
 
     public void GuardarMaximo()
@@ -27,12 +45,40 @@ public abstract class MaximoEstiramiento : MonoBehaviour
         Debug.Log($"Maximo estiramiento guardado en {gameObject.name} : {mano.position}"); //Imprimimos en la consola el valor del maximo estiramiento guardado, esto es importante para que podamos verificar que el valor se ha guardado correctamente y para facilitar la depuracion del codigo.
     }
 
+    public void ActualizarExploracion(Vector3 posActual)
+    {
+        //Llamado cada frame durante la fase de exploracion
+        if (!explorandoInicializado)
+        {
+            rangoMin = posActual;
+            rangoMax = posActual;
+            explorandoInicializado=true;
+        }
+        else
+        {
+            rangoMin = Vector3.Min(rangoMin,posActual);
+            rangoMax = Vector3.Max(rangoMax,posActual);
+        }
+    }
+
+    public void GuardarExploracion()
+    {
+        exploracionGuardada = true;
+        Debug.Log($"Exploracion guardada en {gameObject.name} -> min:{rangoMin} , max:{rangoMax}");
+    }
+
     public void ResetearMaximo()
     {
         //Borramos la calibracion anterior para que el usuario
         //pueda hacer una nueva desde cero sin recargar la escena.
+        posturaNeutra = Vector3.zero;
         maximoEstiramiento = Vector3.zero;
+        rangoMin = Vector3.zero;
+        rangoMax = Vector3.zero;
+        neutroGuardado = false;
         guardado = false;
+        exploracionGuardada = false;
+        explorandoInicializado = false;
 
         Debug.Log($"Calibracion reseteada en {gameObject.name}");
     }

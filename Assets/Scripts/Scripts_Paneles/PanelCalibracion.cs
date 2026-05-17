@@ -39,13 +39,21 @@ public class PanelCalibracion : MonoBehaviour
     [Tooltip("Distancia en metros para considerar pellizco de calibración")]
     public float distanciaPellizco = 0.02f;
 
+    [Header("Exploración lateral/vertical")]
+    [Tooltip("Segundos de movimiento libre tras guardar el alcance máximo")]
+    public float tiempoExploracion = 5f;
+    private float timerExploracion = 0f;
+
+    [Header("Esfera de Referencia")]
+    public EsferaReferencia esferaReferencia;
+
     // Se dispara cuando el usuario completa la calibración con un pellizco.
     // Pasa DatosCalibracion con todo lo que PanelControl necesitará.
     // UIManager se suscribe para saber cuándo ir a PanelControl.
     public event Action<DatosCalibracion> OnCalibrado;
 
     //Vamos a crear los estados del flujo de calibración que vamos a seguir para tener el control en todo momento
-    private enum Estado{ SeleccionMano, Intrucciones, EsperandoPellizco, Guardado}
+    private enum Estado{ SeleccionMano, Instrucciones, EsperandoNeutro, EsperandoMaximo, EsperandoExploracion, Guardado}
     private Estado estadoActual = Estado.SeleccionMano;
 
     private MaximoEstiramiento manoSeleccionada;
@@ -107,36 +115,89 @@ public class PanelCalibracion : MonoBehaviour
 
     void MostrarInstrucciones(string mano)
     {
-        estadoActual = Estado.Intrucciones;
-        textoCalibracion.text = $"Estira el brazo {mano} hacia el frente\n"
-        + "formando un ángulo de 90 grados con el torso.\n"
-        + "Luego haz un pellizco para guardar la posición.";
-
-        estadoActual = Estado.EsperandoPellizco;
+        estadoActual = Estado.Instrucciones;
+        textoCalibracion.text = $"Coloca el brazo {mano} en postura cómoda,\n"
+                                + "codo a 90° y antebrazo al frente.\n"
+                                + "Haz un pellizco para registrar la postura neutra.";
+        estadoActual = Estado.EsperandoNeutro;
     }
 
     void Update() //Deteccion del pellizco de calibracion
     {
-        if (estadoActual != Estado.EsperandoPellizco) return;
-        
-        if (thumbTipIzquierda == null || indexTipIzquierda == null ||
-            thumbTipDerecha   == null || indexTipDerecha   == null)
+        switch (estadoActual)
         {
-            Debug.LogWarning("panelCalibracion: faltan Transform de pellizco en el Inspector");
-            return;
+            case Estado.EsperandoNeutro:
+            case Estado.EsperandoMaximo:
+                ComprobarPellizco();
+                break;
+            case Estado.EsperandoExploracion:
+                TickExploracion();
+                break;
         }
-        
-        bool esIzquierda = (manoSeleccionada == maximoIzquierda); //Si son iguales es izquierda (true), si no es derecha
+    }
 
-        float distancia = esIzquierda ? Vector3.Distance(thumbTipIzquierda.position, indexTipIzquierda.position) : Vector3.Distance(thumbTipDerecha.position, indexTipDerecha.position); 
-        Debug.Log("Distancia Pellizco: " + distancia);
+    void ComprobarPellizco()
+    {
+        if(thumbTipIzquierda == null || indexTipIzquierda == null || thumbTipDerecha == null || indexTipDerecha == null ) return;
 
-        if(distancia < distanciaPellizco)
+        bool esIzquierda = (manoSeleccionada == maximoIzquierda);
+        float distancia = esIzquierda ? Vector3.Distance(thumbTipIzquierda.position, indexTipIzquierda.position) : Vector3.Distance(thumbTipDerecha.position, indexTipDerecha.position);
+
+        if(distancia >= distanciaPellizco) return;
+
+        if(estadoActual == Estado.EsperandoNeutro)
+        {
+            manoSeleccionada.GuardarNeutro();
+            textoCalibracion.text = "¡Postura neutra guardada!\n"
+                                + "Ahora estira el brazo al máximo\n"
+                                + "hacia el frente y haz otro pellizco.";
+            estadoActual = Estado.EsperandoMaximo;
+        }else if (estadoActual == Estado.EsperandoMaximo)
         {
             manoSeleccionada.GuardarMaximo();
+            IniciarExploracion();
+        }
+    }
+
+    void IniciarExploracion()
+    {
+        estadoActual = Estado.EsperandoExploracion;
+        timerExploracion = tiempoExploracion;
+
+        textoCalibracion.text = "¡Alcance guardado!\n"
+                                + "Mueve la mano arriba/abajo\n"
+                                + "e izquierda/derecha libremente.\n"
+                                + $"{tiempoExploracion:F0}s..."; //F0 es sin decimales
+        
+        //Mostramos la esfera para que el usuario vea su espacio de trabajo
+        if(esferaReferencia != null)
+        {
+            bool esIzquierda = (manoSeleccionada == maximoIzquierda);
+            Transform manoT = esIzquierda ? maximoIzquierda.ManoIzquierda : maximoDerecha.ManoDerecha;
+            esferaReferencia.Iniciar(manoSeleccionada, manoT);
+        }
+    }
+
+    void TickExploracion()
+    {
+        bool esIzquierda = (manoSeleccionada == maximoIzquierda);
+        Transform manoT = esIzquierda ? maximoIzquierda.ManoIzquierda : maximoDerecha.ManoDerecha;
+
+        manoSeleccionada.ActualizarExploracion(manoT.position);
+
+        timerExploracion -= Time.deltaTime;
+        int segsRestantes = Mathf.CeilToInt(timerExploracion);
+
+        textoCalibracion.text = "Mueve la mano libremente\n"
+                                + "arriba/abajo e izquierda/derecha\n"
+                                + $"{segsRestantes}s restantes...";
+
+        if(timerExploracion <= 0f)
+        {
+            manoSeleccionada.GuardarExploracion();
+            if(esferaReferencia != null) esferaReferencia.Ocultar();
             MostrarConfirmacion();
         }
-
     }
 
     void MostrarConfirmacion()
@@ -146,6 +207,7 @@ public class PanelCalibracion : MonoBehaviour
         
         Invoke(nameof(NotificarCalibrado),3f); //despues de 3 segundos se cierra el panel, esto es importante para que el usuario tenga tiempo de leer la confirmacion antes de que el panel desaparezca, lo que mejora la experiencia del usuario.
     }
+    
     void NotificarCalibrado()
     {
 

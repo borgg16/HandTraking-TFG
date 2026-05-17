@@ -36,6 +36,9 @@ public class PanelControl : MonoBehaviour
     [Range(0f, 1f)]
     public float umbralPellizco = 0.2f;
 
+    [Header("Esfera de Referencia")]
+    public EsferaReferencia esferaReferencia;
+
     //EVENTOS PARA LOS CAMBIOS DE PANELES
     public event Action OnVolverCalibrar;
     public event Action OnFinalizar;
@@ -103,6 +106,8 @@ public class PanelControl : MonoBehaviour
 
         controlActivo = true;
 
+        if (esferaReferencia != null) esferaReferencia.Iniciar(manoCalibrada, mano);
+
         Debug.Log("PanelControl iniciado - Enviando datos al Robot");
 
     }
@@ -113,18 +118,39 @@ public class PanelControl : MonoBehaviour
     void Update()
     {
         if(!controlActivo) return;
-        if(manoCalibrada == null || !manoCalibrada.guardado || mano == null) return;
+        if (!manoCalibrada.neutroGuardado || !manoCalibrada.guardado || mano == null) return;
         if(thumbTip == null || indexTip == null) return;
 
         //------- Posicion Normalizada ---------------------------------
         Vector3 posActual = mano.position;
-        Vector3 posMaxima = manoCalibrada.maximoEstiramiento;
 
-        Vector3 normalizada = new Vector3(
-            posMaxima.x != 0 ? Mathf.Clamp01(posActual.x / posMaxima.x) : 0f,
-            posMaxima.y != 0 ? Mathf.Clamp01(posActual.y / posMaxima.y) : 0f,
-            posMaxima.z != 0 ? Mathf.Clamp01(posActual.z / posMaxima.z) : 0f
-        );
+        Vector3 neutro = manoCalibrada.posturaNeutra;
+        float normX, normY, normZ;
+
+        // X e Y: usamos el rango de exploración si está disponible
+        if (manoCalibrada.exploracionGuardada)
+        {
+            Vector3 rMin = manoCalibrada.rangoMin;
+            Vector3 rMax = manoCalibrada.rangoMax;
+            float dx = rMax.x - rMin.x;
+            float dy = rMax.y - rMin.y;
+            normX = dx > 0.001f ? Mathf.Clamp01((posActual.x - rMin.x) / dx) : 0.5f;
+            normY = dy > 0.001f ? Mathf.Clamp01((posActual.y - rMin.y) / dy) : 0.5f;
+        }
+        else
+        {
+            Vector3 r = manoCalibrada.maximoEstiramiento - neutro;
+            normX = Mathf.Abs(r.x) > 0.001f ? Mathf.Clamp01((posActual.x - neutro.x) / r.x) : 0f;
+            normY = Mathf.Abs(r.y) > 0.001f ? Mathf.Clamp01((posActual.y - neutro.y) / r.y) : 0f;
+        }
+
+        // Z: profundidad desde postura neutra hasta alcance máximo
+        Vector3 rangoZ = manoCalibrada.maximoEstiramiento - neutro;
+        normZ = Mathf.Abs(rangoZ.z) > 0.001f
+            ? Mathf.Clamp01((posActual.z - neutro.z) / rangoZ.z)
+            : 0f;
+
+        Vector3 normalizada = new Vector3(normX, normY, normZ);
 
         //----- Apertura de la pinza ----------------------------------
         float distanciaDedos = Vector3.Distance(thumbTip.position, indexTip.position);
@@ -182,6 +208,7 @@ public class PanelControl : MonoBehaviour
     
     void AlPulsarVolverCalibrar()
     {
+        if (esferaReferencia != null) esferaReferencia.Ocultar();
         controlActivo = false;
         LimpiarTextos();
         OnVolverCalibrar?.Invoke();
@@ -190,6 +217,7 @@ public class PanelControl : MonoBehaviour
 
     void AlPulsarFinalizar()
     {
+        if (esferaReferencia != null) esferaReferencia.Ocultar();
         controlActivo = false;
         LimpiarTextos();
         OnFinalizar?.Invoke();
