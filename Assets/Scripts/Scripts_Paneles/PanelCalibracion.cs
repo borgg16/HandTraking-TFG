@@ -7,8 +7,10 @@ public class PanelCalibracion : MonoBehaviour
 {
 
     [Header("UI")]
-    [Tooltip("Texto principal — cambia según el estado")]
+    [Tooltip("Texto principal e Imagen — cambia según el estado")]
     public TextMeshProUGUI textoCalibracion;
+    public GameObject contenedorImagen;
+    public RawImage imagenCalibracion;
 
     [Tooltip("Botón para seleccionar el brazo izquierdo")]
     public Button botonIzquierda;
@@ -46,6 +48,14 @@ public class PanelCalibracion : MonoBehaviour
 
     [Header("Esfera de Referencia")]
     public EsferaReferencia esferaReferencia;
+
+    [Header("Imágenes de instrucción — Brazo Derecho")]
+    [Tooltip("Ilustración: postura neutra con brazo derecho (codo 90°)")]
+    public Texture2D spriteNeutroDerecha; 
+
+    [Header("Imágenes de instrucción — Brazo Izquierdo")]
+    [Tooltip("Ilustración: postura neutra con brazo izquierdo (codo 90°)")]
+    public Texture2D spriteNeutroIzquierda;
 
     // Se dispara cuando el usuario completa la calibración con un pellizco.
     // Pasa DatosCalibracion con todo lo que PanelControl necesitará.
@@ -86,6 +96,28 @@ public class PanelCalibracion : MonoBehaviour
     }
 
 
+    //---------------------------------------------
+    // HELPER IMAGENES DE INSTRUCCION
+    //---------------------------------------------
+    Texture2D ElegirTexture2D(Texture2D izquierda, Texture2D derecha)
+    {
+        return (manoSeleccionada == maximoIzquierda) ? izquierda : derecha;
+    }
+
+    void MostrarImagen(Texture2D textura)
+    {
+        if(imagenCalibracion == null) return;
+        if(textura != null)
+        {
+            imagenCalibracion.texture = textura;
+            contenedorImagen.SetActive(true);
+        }
+        else
+        {
+            contenedorImagen.SetActive(false);
+        }
+    }
+
 
     //----------------------------------------------
     // ESTADOS 
@@ -97,6 +129,7 @@ public class PanelCalibracion : MonoBehaviour
         textoCalibracion.text = "¿Qué brazo deseas calibrar?";
         botonIzquierda.gameObject.SetActive(true);
         botonDerecha.gameObject.SetActive(true);
+        MostrarImagen(null);
     }
 
     void SeleccionarMano(string mano)
@@ -120,9 +153,8 @@ public class PanelCalibracion : MonoBehaviour
     void MostrarInstrucciones(string mano)
     {
         estadoActual = Estado.Instrucciones;
-        textoCalibracion.text = $"Coloca el brazo {mano} en postura cómoda,\n"
-                                + "codo a 90° y antebrazo al frente.\n"
-                                + "Haz un pellizco para registrar la postura neutra.";
+        textoCalibracion.text = $"Replica con tu brazo {mano} la posición de la imagen:";
+        MostrarImagen(ElegirTexture2D(spriteNeutroIzquierda, spriteNeutroDerecha));
         Invoke(nameof(ActivarEsperaPellizco),1.5f);
     }
 
@@ -157,6 +189,7 @@ public class PanelCalibracion : MonoBehaviour
         if(estadoActual == Estado.EsperandoNeutro)
         {
             manoSeleccionada.GuardarNeutro();
+            MostrarImagen(null);
             textoCalibracion.text = "¡Postura neutra guardada!\n"
                                 + "Ahora estira el brazo al máximo\n"
                                 + "hacia el frente y haz otro pellizco.";
@@ -227,7 +260,6 @@ public class PanelCalibracion : MonoBehaviour
     {
         estadoActual = Estado.Guardado;
         textoCalibracion.text = "¡Posición guardada!\nYa puedes controlar el brazo robot con esta mano.";
-        
         Invoke(nameof(NotificarCalibrado),3f); //despues de 3 segundos se cierra el panel, esto es importante para que el usuario tenga tiempo de leer la confirmacion antes de que el panel desaparezca, lo que mejora la experiencia del usuario.
     }
     

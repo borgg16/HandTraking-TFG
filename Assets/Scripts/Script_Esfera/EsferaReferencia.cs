@@ -30,10 +30,6 @@ public class EsferaReferencia : MonoBehaviour
 
     void Awake()
     {
-        //Ocultamos el mesh original(esfera), ya que no lo necesitamos
-        var mr = GetComponentInChildren<MeshRenderer>();
-        if(mr != null) mr.enabled = false;
-
         //Creamos los 3 aros como hijos de este GameObject
         aroXY = CrearAro("Aro_XY");
         aroXZ = CrearAro("Aro_XZ");
@@ -85,7 +81,6 @@ public class EsferaReferencia : MonoBehaviour
             else
             {
                 c = Color.Lerp(colorAviso, colorLimite, Mathf.Clamp01((PosicionNorm - umbralLimite) / (1f - umbralLimite)));
-                mat.color = c;
             }
         }
         AplicarColor(aroXY,c);

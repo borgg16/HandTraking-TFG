@@ -21,9 +21,9 @@ public class PanelControl : MonoBehaviour
     public Button botonAlPulsarFinalizar;
 
     [Header("Colores")]
-    public Color colorReposo     = Color.white;
-    public Color colorPellizco   = Color.green;
-    public Color colorRobot      = Color.cyan;
+    public Color colorReposo = Color.white;
+    public Color colorPellizco = Color.green;
+    public Color colorRobot = Color.cyan;
 
     [Header("Umbrales de pinza")]
     [Tooltip("Distancia en metros para pinza CERRADA")]
@@ -35,6 +35,11 @@ public class PanelControl : MonoBehaviour
     [Tooltip("Valor de gripper (0-1) por debajo del cual se considera pellizco")]
     [Range(0f, 1f)]
     public float umbralPellizco = 0.2f;
+
+    [Header("Sensibilidad")]
+    [Tooltip("Multiplica el rango de X e Y — sube si el movimiento lateral parece corto")]
+    [Range(1f, 5f)]
+    public float sensibilidadLateral = 1f;
 
     [Header("Esfera de Referencia")]
     public EsferaReferencia esferaReferencia;
@@ -59,48 +64,43 @@ public class PanelControl : MonoBehaviour
     public void Iniciar(DatosCalibracion datos, ScriptWebRTC rtc)
     {
         manoCalibrada = datos.manoCalibrada;
-        thumbTip      = datos.thumbTip;
-        indexTip      = datos.indexTip;
-        scriptWebRTC  = rtc;
+        thumbTip = datos.thumbTip;
+        indexTip = datos.indexTip;
+        scriptWebRTC = rtc;
 
-        //Obtenemos el Transform de la mano segun la subclase
-        var izquierda = manoCalibrada.GetComponent<MaximoIzquierda>();
-        if(izquierda != null)
+        //Obtenemos el Transform de la mano segun el tipo real de la subclase
+        if (manoCalibrada is MaximoIzquierda izquierda)
         {
             mano = izquierda.ManoIzquierda;
         }
+        else if (manoCalibrada is MaximoDerecha derecha)
+        {
+            mano = derecha.ManoDerecha;
+        }
         else
         {
-            var derecha = manoCalibrada.GetComponent<MaximoDerecha>();
-            if(derecha != null)
-            {
-                mano = derecha.ManoDerecha;
-            }
-            else
-            {
-                Debug.LogError("PanelControl: no se encontro MaximoIzquierda ni MaximoDerecha");
-                return;
-            }
+            Debug.LogError("PanelControl: no se encontro MaximoIzquierda ni MaximoDerecha");
+            return;
         }
 
         //Subcripcion al evento de coordenadas del robot
         scriptWebRTC.OnCoordenadasRobot += ActualizarCoordsRobot;
 
         //Listeners de botones
-        if(botonVolverCalibrar!= null) botonVolverCalibrar.onClick.AddListener(AlPulsarVolverCalibrar);
-        if(botonAlPulsarFinalizar != null) botonAlPulsarFinalizar.onClick.AddListener(AlPulsarFinalizar);
+        if (botonVolverCalibrar != null) botonVolverCalibrar.onClick.AddListener(AlPulsarVolverCalibrar);
+        if (botonAlPulsarFinalizar != null) botonAlPulsarFinalizar.onClick.AddListener(AlPulsarFinalizar);
 
         //Textos Iniciales
-        if(textoCoordsMano != null) textoCoordsMano.text     = "X: --\nY: --\nZ: --\nPinza: --";
-        if(textoCoordsRobot != null) textoCoordsRobot.text    = "X: --\nY: --\nZ: --";
-        if(textoPellizcoMano != null)
+        if (textoCoordsMano != null) textoCoordsMano.text = "X: --\nY: --\nZ: --\nPinza: --";
+        if (textoCoordsRobot != null) textoCoordsRobot.text = "X: --\nY: --\nZ: --";
+        if (textoPellizcoMano != null)
         {
-            textoPellizcoMano.text   = "*Sin pellizco";
-            textoPellizcoMano.color  = colorReposo;
+            textoPellizcoMano.text = "*Sin pellizco";
+            textoPellizcoMano.color = colorReposo;
         }
-        if(textoPellizcoRobot != null)
-        { 
-            textoPellizcoRobot.text  = "*Robot en reposo";
+        if (textoPellizcoRobot != null)
+        {
+            textoPellizcoRobot.text = "*Robot en reposo";
             textoPellizcoRobot.color = colorReposo;
         }
 
@@ -117,9 +117,9 @@ public class PanelControl : MonoBehaviour
     //------------------------------------------------------------------
     void Update()
     {
-        if(!controlActivo) return;
+        if (!controlActivo) return;
         if (!manoCalibrada.neutroGuardado || !manoCalibrada.guardado || mano == null) return;
-        if(thumbTip == null || indexTip == null) return;
+        if (thumbTip == null || indexTip == null) return;
 
         //------- Posicion Normalizada ---------------------------------
         Vector3 posActual = mano.position;
@@ -132,10 +132,31 @@ public class PanelControl : MonoBehaviour
         {
             Vector3 rMin = manoCalibrada.rangoMin;
             Vector3 rMax = manoCalibrada.rangoMax;
-            float dx = rMax.x - rMin.x;
-            float dy = rMax.y - rMin.y;
-            normX = dx > 0.001f ? Mathf.Clamp01((posActual.x - rMin.x) / dx) : 0.5f;
-            normY = dy > 0.001f ? Mathf.Clamp01((posActual.y - rMin.y) / dy) : 0.5f;
+
+            float desvX = posActual.x - neutro.x;
+            float extXPos = rMax.x - neutro.x;
+            float extXNeg = neutro.x - rMin.x;
+            if (desvX >= 0f)
+            {
+                normX = extXPos > 0.001f ? Mathf.Clamp01(0.5f + 0.5f * (desvX / extXPos) * sensibilidadLateral) : 0.5f;
+            }
+            else
+            {
+                normX = extXNeg > 0.001f ? Mathf.Clamp01(0.5f + 0.5f * (desvX / extXNeg) * sensibilidadLateral) : 0.5f;
+            }
+
+            float desvY = posActual.y - neutro.y;
+            float extYPos = rMax.y - neutro.y;
+            float extYNeg = neutro.y - rMin.y;
+
+            if (desvY >= 0f)
+            {
+                normY = extYPos > 0.001f ? Mathf.Clamp01(0.5f + 0.5f * (desvY / extYPos) * sensibilidadLateral) : 0.5f;
+            }
+            else
+            {
+                normY = extYNeg > 0.001f ? Mathf.Clamp01(0.5f + 0.5f * (desvY / extYNeg) * sensibilidadLateral) : 0.5f;
+            }
         }
         else
         {
@@ -155,21 +176,21 @@ public class PanelControl : MonoBehaviour
         //----- Apertura de la pinza ----------------------------------
         float distanciaDedos = Vector3.Distance(thumbTip.position, indexTip.position);
         float gripper = Mathf.InverseLerp(distanciaMinPinza, distanciaMaxPinza, distanciaDedos);
-            //InverseLerp: 0 = dedos tocandose(pinza cerrada), 1 = dedos separados (abierta)
+        //InverseLerp: 0 = dedos tocandose(pinza cerrada), 1 = dedos separados (abierta)
 
         //----- Indicador de pellizco de la mano ----------------------
         bool pellizcoActivo = gripper < umbralPellizco;
-        
-        if(textoPellizcoMano != null)
+
+        if (textoPellizcoMano != null)
         {
-            textoPellizcoMano.text  = pellizcoActivo ? "*PELLIZCO ACTIVO" : "*Sin pellizco";
+            textoPellizcoMano.text = pellizcoActivo ? "*PELLIZCO ACTIVO" : "*Sin pellizco";
             textoPellizcoMano.color = pellizcoActivo ? colorPellizco : colorReposo;
         }
 
         //----- Texto de coordenadas de la mano ----------------------
-        if(textoCoordsMano != null)
+        if (textoCoordsMano != null)
         {
-            textoCoordsMano.text =  $"X: {normalizada.x:F2}\n" +
+            textoCoordsMano.text = $"X: {normalizada.x:F2}\n" +
                                     $"Y: {normalizada.y:F2}\n" +
                                     $"Z: {normalizada.z:F2}\n" +
                                     $"Pinza: {gripper:F2}";
@@ -184,7 +205,7 @@ public class PanelControl : MonoBehaviour
     //----------------------------------------------------------------
     void ActualizarCoordsRobot(Vector3 coords)
     {
-        if(textoCoordsRobot == null) return;
+        if (textoCoordsRobot == null) return;
 
         textoCoordsRobot.text = $"X: {coords.x:F2}\n" +
                                 $"Y: {coords.y:F2}\n" +
@@ -192,8 +213,8 @@ public class PanelControl : MonoBehaviour
 
         //Detectamos movimiento del robot comparando con la posicion anterior
         bool robotMoviendo = Vector3.Distance(coords, ultimaPosRobot) > 0.01f;
-        
-        if(textoPellizcoRobot != null)
+
+        if (textoPellizcoRobot != null)
         {
             textoPellizcoRobot.text = robotMoviendo ? "ROBOT EN MOVIMIENTO" : "Robot en reposo";
             textoPellizcoRobot.color = robotMoviendo ? colorRobot : colorReposo;
@@ -205,7 +226,7 @@ public class PanelControl : MonoBehaviour
     //-------------------------------------------------------------
     //BOTON - VOLVER A CALIBRAR
     //-------------------------------------------------------------
-    
+
     void AlPulsarVolverCalibrar()
     {
         if (esferaReferencia != null) esferaReferencia.Ocultar();
@@ -226,15 +247,15 @@ public class PanelControl : MonoBehaviour
 
     void LimpiarTextos()
     {
-         //Reseteamos textos
-        if(textoCoordsMano != null) textoCoordsMano.text = "Mano: (calibración en curso...)";
-        if(textoCoordsRobot != null) textoCoordsRobot.text = "Brazo: (en espera...)";
-        if(textoPellizcoMano != null)
+        //Reseteamos textos
+        if (textoCoordsMano != null) textoCoordsMano.text = "Mano: (calibración en curso...)";
+        if (textoCoordsRobot != null) textoCoordsRobot.text = "Brazo: (en espera...)";
+        if (textoPellizcoMano != null)
         {
             textoPellizcoMano.text = "*En Pausa";
             textoPellizcoMano.color = colorReposo;
         }
-        if(textoPellizcoRobot != null)
+        if (textoPellizcoRobot != null)
         {
             textoPellizcoRobot.text = "*En Pausa";
             textoPellizcoRobot.color = colorReposo;
@@ -245,20 +266,20 @@ public class PanelControl : MonoBehaviour
     //--------------------------------------------------------------------
     //LIMPIEZA
     //--------------------------------------------------------------------
-    
+
     void OnDestroy()
     {
-        if(scriptWebRTC != null)
+        if (scriptWebRTC != null)
         {
             scriptWebRTC.OnCoordenadasRobot -= ActualizarCoordsRobot;
         }
 
-        if(botonVolverCalibrar != null)
+        if (botonVolverCalibrar != null)
         {
             botonVolverCalibrar.onClick.RemoveListener(AlPulsarVolverCalibrar);
         }
 
-        if(botonAlPulsarFinalizar != null)
+        if (botonAlPulsarFinalizar != null)
         {
             botonAlPulsarFinalizar.onClick.RemoveListener(AlPulsarFinalizar);
         }
