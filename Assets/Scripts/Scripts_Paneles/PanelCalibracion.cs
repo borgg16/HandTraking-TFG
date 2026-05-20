@@ -76,6 +76,9 @@ public class PanelCalibracion : MonoBehaviour
     {
         //Borramos la calibracion anterior para empezar de cero
         //Llamada por UIManager antes de mostrar el panel
+        CancelInvoke(nameof(ActivarEsperaPellizco));
+        CancelInvoke(nameof(ActivarEsperaMaximo));
+        CancelInvoke(nameof(ActivarExploracion));
         maximoIzquierda.ResetearMaximo();
         maximoDerecha.ResetearMaximo();
         MostrarSeleccionMano();
@@ -98,6 +101,7 @@ public class PanelCalibracion : MonoBehaviour
 
     void SeleccionarMano(string mano)
     {
+        CancelInvoke(nameof(ActivarEsperaPellizco));
         botonIzquierda.gameObject.SetActive(false);
         botonDerecha.gameObject.SetActive(false);
 
@@ -119,6 +123,11 @@ public class PanelCalibracion : MonoBehaviour
         textoCalibracion.text = $"Coloca el brazo {mano} en postura cómoda,\n"
                                 + "codo a 90° y antebrazo al frente.\n"
                                 + "Haz un pellizco para registrar la postura neutra.";
+        Invoke(nameof(ActivarEsperaPellizco),1.5f);
+    }
+
+    void ActivarEsperaPellizco()
+    {
         estadoActual = Estado.EsperandoNeutro;
     }
 
@@ -151,17 +160,24 @@ public class PanelCalibracion : MonoBehaviour
             textoCalibracion.text = "¡Postura neutra guardada!\n"
                                 + "Ahora estira el brazo al máximo\n"
                                 + "hacia el frente y haz otro pellizco.";
-            estadoActual = Estado.EsperandoMaximo;
+            Invoke(nameof(ActivarEsperaMaximo),1.5f);
+
         }else if (estadoActual == Estado.EsperandoMaximo)
         {
             manoSeleccionada.GuardarMaximo();
+            estadoActual=Estado.Instrucciones;
             IniciarExploracion();
         }
     }
 
+    void ActivarEsperaMaximo()
+    {
+        estadoActual = Estado.EsperandoMaximo;
+    }
+
     void IniciarExploracion()
     {
-        estadoActual = Estado.EsperandoExploracion;
+        estadoActual = Estado.Instrucciones;
         timerExploracion = tiempoExploracion;
 
         textoCalibracion.text = "¡Alcance guardado!\n"
@@ -176,6 +192,13 @@ public class PanelCalibracion : MonoBehaviour
             Transform manoT = esIzquierda ? maximoIzquierda.ManoIzquierda : maximoDerecha.ManoDerecha;
             esferaReferencia.Iniciar(manoSeleccionada, manoT);
         }
+
+        Invoke(nameof(ActivarExploracion),1.5f);
+    }
+
+    void ActivarExploracion()
+    {
+        estadoActual = Estado.EsperandoExploracion;
     }
 
     void TickExploracion()
