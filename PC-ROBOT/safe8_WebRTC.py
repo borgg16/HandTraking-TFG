@@ -47,19 +47,6 @@ CAM_FPS = 30
 def clamp(v, vmin, vmax):
     return max(vmin, min(vmax, v))
 
-def transformXYZ(X_cm, Y_cm, Z_cm):
-    """
-    Reordena ejes del espacio Unity al espacio físico del RoArm M2.
-    La cámara de Unity y el robot tienen convenios de ejes distintos:
-        Unity X(lateral) -> Robot Y
-        Unity Y(altura) -> Robot Z (invertida)
-        Unity Z(profund.) -> Robot X (restada desde 150cm)
-    """
-    X2_cm = 150 - Z_cm # profundidad -> alcance del brazo
-    Y2_cm = X_cm       # lateral -> lateral del robot
-    Z2_cm = 10 - Y_cm  # altura -> altura del brazo (invertida)
-    return X2_cm, Y2_cm, Z2_cm
-
 def desnormalizar(norm_x, norm_y, norm_z, gripper):
     """
     Convierte el vector normalizado [0,1] recibido de Unity
@@ -73,12 +60,24 @@ def desnormalizar(norm_x, norm_y, norm_z, gripper):
         gripper= 0.0  -> pinza cerrada  (pellizco activo en Unity)
         gripper= 1.0  -> pinza abierta
     """
-    x_cm = X_MIN + norm_x * (X_MAX - X_MIN)
-    y_cm = Y_MIN + norm_y * (Y_MAX - Y_MIN)
-    z_cm = Z_MIN + norm_z * (Z_MAX - Z_MIN)
-    # Interpolación lineal: gripper=0 → T_CLOSED, gripper=1 → T_OPEN
+    # norm_z = 0 -> brazo recogido -> X del robot pequeño
+    # norm_z = 1 -> brazo estirado -> X del robot grande
+    x_robot = X_MIN + norm_z * (X_MAX - X_MIN)
+    
+    # norm_x= 0.5 -> centro -> Y del robot = 0
+    # norm_x = 0 -> izquierda -> Y negativa
+    # norm_x = 1 -> derecha -> Y positiva
+    y_robot = Y_MIN + norm_x * (Y_MAX - Y_MIN)
+    
+    # norm_y = 0.5 -> altura neutra -> Z del robot medio
+    # norm_y = 1 -> mano arriba -> Z positiva
+    # norm_y = 0 -> mano abajo -> Z negativa
+    z_robot = Z_MIN + norm_y * (Z_MAX - Z_MIN)
+    
     t = T_CLOSED + (T_OPEN - T_CLOSED) * clamp(gripper, 0.0, 1.0)
-    return x_cm, y_cm, z_cm, t
+    
+    return x_robot, y_robot, z_robot, t
+    
 
 #------ COMUNICACION SERIAL --------------------
 def crear_conexion_serial(puerto, baudrate=115200):
@@ -241,10 +240,6 @@ async def ejecutar_webrtc(args):
             )
             pc = RTCPeerConnection(configuration=config)
             
-            # Añadimos el track de video de la camara
-            # Unity lo recibe en peerConnection.OnTrack -> imagenVideo.texture
-            pc.addTrack(video_track)
-            
             #---- DataChannel: Unity lo crea ("comandos"), Python lo recibe aquí ----
             # Es bidireccional: Unity envia coordenadas, python devuelve la posicion del brazo
             data_channel = None
@@ -289,13 +284,10 @@ async def ejecutar_webrtc(args):
                     # 1. Desnormalizamos: [0,1] -> centimetros
                     x_cm, y_cm, z_cm, t = desnormalizar(norm_x, norm_y, norm_z, gripper)
                     
-                    # 2. Reordenamos los ejes
-                    x2_cm, y2_cm, z2_cm = transformXYZ(x_cm, y_cm, z_cm)
-                    
-                    # 3. Aplicamos límites de seguridad del hardware
-                    x_safe = clamp(x2_cm, X_MIN, X_MAX)
-                    y_safe = clamp(y2_cm, Y_MIN, Y_MAX)
-                    z_safe = clamp(z2_cm, Z_MIN, Z_MAX)
+                    # 2. Aplicamos límites de seguridad del hardware
+                    x_safe = clamp(x_cm, X_MIN, X_MAX)
+                    y_safe = clamp(y_cm, Y_MIN, Y_MAX)
+                    z_safe = clamp(z_cm, Z_MIN, Z_MAX)
                     
                     # 4. Construimos el comando JSON para el firmware del RoArm M2.
                     #    T=1041: movimiento cartesiano absoluto.
@@ -305,7 +297,7 @@ async def ejecutar_webrtc(args):
                         "x": int(x_safe * 10),
                         "y": int(y_safe * 10),
                         "z": int(z_safe * 10),
-                        "t": round(t, 3)
+                        "t": round(t*5, 1)
                     }
                     enviar_comando_serial(ser, cmd)
 
@@ -355,6 +347,7 @@ async def ejecutar_webrtc(args):
                     # Establecemos la descripcion remota (la oferta que nos manda Unity)
                     desc = RTCSessionDescription(sdp=msg["sdp"], type="offer")
                     await pc.setRemoteDescription(desc)
+                    
                     
                     # Ahora si podemos añadir los candidatos que llegaron antes que la oferta
                     for candidato in candidatos_pendientes:
@@ -414,17 +407,20 @@ async def ejecutar_webrtc(args):
         
     finally:
         #---- Limpieza de recursos al salir ----
-        video_track.detener()
+        if video_track is not None:
+            video_track.detener()
         
         if ser and ser.is_open:
             ser.close()
             log.info("Puerto serial cerrado")
         
-        if pc is not None:
-            try:
-                await pc.close()
-            except Exception:
-                pass
+        #if pc is not None:
+        #    try:
+        #       await pc.close()
+        #    except Exception:
+        #       pass
+        
+        video_track = None
             
         log.info("Sesion WebRTC finalizada")
                         
