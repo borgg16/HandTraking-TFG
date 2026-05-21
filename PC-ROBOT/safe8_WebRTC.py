@@ -171,6 +171,8 @@ class CameraVideoTrack(MediaStreamTrack):
         
         # Capturamos el frame de la camara del brazo
         ret, frame_bgr = self.cap.read()
+        if self._pts % 30 == 0:   # log cada segundo aprox
+            log.info(f"CameraVideoTrack: frame {self._pts}, camara ok={ret}")
         if not ret:
             # Si la camara no responde, enviamos un frame negro para no romper el stream
             frame_bgr = np.zeros((CAM_HEIGHT, CAM_WIDTH, 3), dtype=np.uint8)
@@ -348,6 +350,8 @@ async def ejecutar_webrtc(args):
                     desc = RTCSessionDescription(sdp=msg["sdp"], type="offer")
                     await pc.setRemoteDescription(desc)
                     
+                    pc.addTrack(video_track)
+                    log.info("Video track añadido a la PeerConnection")
                     
                     # Ahora si podemos añadir los candidatos que llegaron antes que la oferta
                     for candidato in candidatos_pendientes:
@@ -369,8 +373,14 @@ async def ejecutar_webrtc(args):
                         "type": "answer",
                         "sdp": pc.localDescription.sdp
                     }))
-                    log.info("Answer enviado a Unity -- aguardando establecimiento ICE...")
+                    log.info(f"SDP del answer contiene video: {'m=video' in pc.localDescription.sdp}")
                     
+                    for linea in pc.localDescription.sdp.split("\r\n"):
+                        if linea.startswith("a=rtpmap") or linea.startswith("m=video"):
+                            log.info(f"SDP codec: {linea}")
+                            
+                    log.info("Answer enviado a Unity -- aguardando establecimiento ICE...")
+                            
                 #---- Candidatos ICE de Unity (trickle ICE) ----
                 elif tipo == "candidate":
                     candidate_str = msg.get("candidate", "")
