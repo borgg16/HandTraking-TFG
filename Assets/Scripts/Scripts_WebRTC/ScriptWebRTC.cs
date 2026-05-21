@@ -49,6 +49,8 @@ public class ScriptWebRTC : MonoBehaviour
     private bool conexionEstablecida = false;
     //Flag para proteger los envios por DataChannel antes de que el canal este abierto (evitamos excepciones que controlar)
 
+    private Texture _texturaVideoRecibida = null;
+
     //EVENTO PUBLICO que nos permitirá al panel de control estar "Subcrito a las coordenadas del robot"
     public event Action<Vector3> OnCoordenadasRobot;
     //Cuando recibamos coordenadas del robot hace algo
@@ -61,6 +63,8 @@ public class ScriptWebRTC : MonoBehaviour
     async void Start()
     {
         cancelToken = new CancellationTokenSource();
+
+        StartCoroutine(WebRTC.Update());
 
         //Esperamos a que se conecte al servidor de señalizacion de manera asincrona para que la app no se bloquee. 
         await ConectarSignaling();
@@ -172,6 +176,12 @@ public class ScriptWebRTC : MonoBehaviour
         {
             ProcesarMensajeSignaling(mensaje);
         }
+
+        if(_texturaVideoRecibida != null && imagenVideo != null)
+        {
+            imagenVideo.texture = _texturaVideoRecibida;
+            _texturaVideoRecibida = null; //Limpiamos la variable para no reasignar la textura cada frame
+        }
     }
 
     //-------------------------------------------------
@@ -248,14 +258,11 @@ public class ScriptWebRTC : MonoBehaviour
             //OnTrack se dispara cuando el robot nos envia un archivo de video
             if(e.Track is VideoStreamTrack videoTrack)
             {
+                videoTrack.Enabled = true;
+
                 videoTrack.OnVideoReceived += tex =>
                 {
-                    //OnVideoReceived se llama cada vez que llega un nuevo frame, asignamos la textura directamente al RawImage del panel, lo cual actualiza la imagen automaticamente.
-                    
-                    if(imagenVideo != null)
-                    {
-                        imagenVideo.texture = tex;
-                    }
+                    _texturaVideoRecibida = tex;
                 };
             }
         }; 
@@ -315,7 +322,14 @@ public class ScriptWebRTC : MonoBehaviour
             1. El cliente (Unity) crea una oferta (offer) con su descripción SDP
             2. Robot responde con una respuesta (answer) con su propia descripción SDP
         */
+        peerConnection.AddTransceiver(TrackKind.Video, new RTCRtpTransceiverInit
+        {
+            direction = RTCRtpTransceiverDirection.RecvOnly //Solo queremos recibir video, no enviar
+        });
+
+
         var ofertaOp = peerConnection.CreateOffer();
+        
         yield return ofertaOp; //Esperamos a que se cree la oferta sin bloquear el hilo principal de Unity
 
         //TODO: Comprobar si hubo error en la oferta
@@ -443,11 +457,17 @@ public class ScriptWebRTC : MonoBehaviour
             return;
         }
 
+        var ci = System.Globalization.CultureInfo.InvariantCulture; //Para asegurar que el punto decimal es '.' y no ',' segun la configuracion regional
+        string x = posNormalizada.x.ToString("F3", ci);
+        string y = posNormalizada.y.ToString("F3", ci);
+        string z = posNormalizada.z.ToString("F3", ci);
+        string g = Mathf.Clamp01(gripper).ToString("F3", ci);
+
         //Vamos a construir el JSON manualmente porque hemos detectado que al hacerlo con funciones y tal se añade retardo (algun frame puede escaparse) y producir basurilla
-        string json = $"{{\"x\":{posNormalizada.x:F3}," +
-                        $"\"y\":{posNormalizada.y:F3}," +
-                        $"\"z\":{posNormalizada.z:F3}," +
-                        $"\"g\":{Mathf.Clamp01(gripper):F3}}}";
+        string json = $"{{\"x\":{x}," +
+                        $"\"y\":{y}," +
+                        $"\"z\":{z}," +
+                        $"\"g\":{g}}}";
         //F3 formatea el numero a 3 decimales, Clamp01 se asegura de que el valor de gripper esté entre 0 y 1
         dataChannel.Send(json);
     }

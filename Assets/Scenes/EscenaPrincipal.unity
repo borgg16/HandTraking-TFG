@@ -537,10 +537,10 @@ RectTransform:
   - {fileID: 1162536290}
   m_Father: {fileID: 690036844}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 260, y: -80}
+  m_SizeDelta: {x: 520, y: 160}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &134493645
 MonoBehaviour:
@@ -2144,10 +2144,10 @@ RectTransform:
   m_Children: []
   m_Father: {fileID: 943409033}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 315}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 540, y: -197.5}
+  m_SizeDelta: {x: 1080, y: 315}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &559778762
 MonoBehaviour:
@@ -3091,10 +3091,10 @@ RectTransform:
   - {fileID: 1088320466}
   m_Father: {fileID: 943409033}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 160}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 540, y: -445}
+  m_SizeDelta: {x: 1080, y: 160}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &690036845
 MonoBehaviour:
@@ -4386,10 +4386,10 @@ RectTransform:
   - {fileID: 120550053}
   m_Father: {fileID: 690036844}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
-  m_AnchorMin: {x: 0, y: 0}
-  m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 0, y: 0}
-  m_SizeDelta: {x: 0, y: 0}
+  m_AnchorMin: {x: 0, y: 1}
+  m_AnchorMax: {x: 0, y: 1}
+  m_AnchoredPosition: {x: 820, y: -80}
+  m_SizeDelta: {x: 520, y: 160}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!114 &1088320467
 MonoBehaviour:
@@ -5069,7 +5069,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &1354370588
 RectTransform:
   m_ObjectHideFlags: 0
@@ -5537,7 +5537,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.UI.RawImage
   m_Material: {fileID: 0}
-  m_Color: {r: 0.039215688, g: 0.08235294, b: 0.1254902, a: 1}
+  m_Color: {r: 1, g: 1, b: 1, a: 1}
   m_RaycastTarget: 1
   m_RaycastPadding: {x: 0, y: 0, z: 0, w: 0}
   m_Maskable: 1
@@ -6215,7 +6215,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &1706806973
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6860,7 +6860,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1950534718
 RectTransform:
   m_ObjectHideFlags: 0
