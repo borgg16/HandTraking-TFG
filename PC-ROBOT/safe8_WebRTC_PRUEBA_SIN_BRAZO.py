@@ -19,6 +19,19 @@ from aiortc.mediastreams import MediaStreamTrack
 from aiortc.sdp import candidate_from_sdp
 from av import VideoFrame
 
+# ===================== MOCKS =============================
+class DummySerial:
+    """Clase falsa para simular el comportamiento del puerto serie sin el brazo conectado"""
+    is_open = True
+    def write(self, data):
+        pass
+    def readline(self):
+        # Simula una respuesta genérica del firmware del RoArm
+        return b'{"status":"mock_ok"}\n'
+    def close(self):
+        pass
+
+
 # ===================== CONFIGURACIÓN =====================
 logging.basicConfig(
     level=logging.INFO,
@@ -211,8 +224,8 @@ async def ejecutar_webrtc(args):
     # Conexion serial al robot----------------------
     ser = crear_conexion_serial(args.puerto, args.baudrate)
     if ser is None:
-        log.error("Imposible continuar sin conexión serial al robot")
-        return
+        log.warning("Puerto serie no detectado. ¡Activando MODO SIMULACIÓN sin hardware!")
+        ser = DummySerial() # En lugar de hacer return, usamos el brazo virtual
     
     min_dt = 1.0 / args.freq if args.freq > 0 else 0.0
     last_send = 0.0
