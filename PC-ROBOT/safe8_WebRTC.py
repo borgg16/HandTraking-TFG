@@ -62,12 +62,14 @@ def desnormalizar(norm_x, norm_y, norm_z, gripper):
     """
     # norm_z = 0 -> brazo recogido -> X del robot pequeño
     # norm_z = 1 -> brazo estirado -> X del robot grande
-    x_robot = X_MIN + norm_z * (X_MAX - X_MIN)
+    x_robot = X_MIN + norm_z *  (X_MAX - X_MIN)
+    #x_robot = X_MAX + norm_z *  (X_MIN - X_MAX)
     
     # norm_x= 0.5 -> centro -> Y del robot = 0
     # norm_x = 0 -> izquierda -> Y negativa
     # norm_x = 1 -> derecha -> Y positiva
-    y_robot = Y_MIN + norm_x * (Y_MAX - Y_MIN)
+    #y_robot = Y_MIN + norm_x * (Y_MAX - Y_MIN)
+    y_robot = Y_MAX + norm_x * (Y_MIN - Y_MAX)
     
     # norm_y = 0.5 -> altura neutra -> Z del robot medio
     # norm_y = 1 -> mano arriba -> Z positiva
@@ -173,6 +175,7 @@ class CameraVideoTrack(MediaStreamTrack):
         ret, frame_bgr = self.cap.read()
         if self._pts % 30 == 0:   # log cada segundo aprox
             log.info(f"CameraVideoTrack: frame {self._pts}, camara ok={ret}")
+            
         if not ret:
             # Si la camara no responde, enviamos un frame negro para no romper el stream
             frame_bgr = np.zeros((CAM_HEIGHT, CAM_WIDTH, 3), dtype=np.uint8)
