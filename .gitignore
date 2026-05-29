@@ -80,4 +80,7 @@ crashlytics-build.properties
 /PC-ROBOT/venv_robot/Lib
 /PC-ROBOT/venv_robot
 
+!resultados/*.png
+!resultados/*.csv
+
 repomix-output.xml
