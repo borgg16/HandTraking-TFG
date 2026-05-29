@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import argparse
+from datetime import datetime
 
 import cv2
 import numpy as np
@@ -254,75 +255,87 @@ async def ejecutar_webrtc(args):
                 nonlocal data_channel
                 data_channel = channel
                 log.info(f"DataChannel '{channel.label}' establecido --- control activo.")
-                
+
                 @channel.on("message")
                 def on_message(msg):
-                    """
-                    Recibimos el vector normalizado de Unity y lo convertimos
-                    en un comando serial para el RoArm M2.
-
-                    Entrada (ScriptWebRTC.EnviarPosicion):
-                        {"x": 0.500, "y": 0.500, "z": 0.000, "g": 1.000}
-
-                    Salida al robot (comando T=1041 del firmware RoArm M2):
-                        {"T": 1041, "x": X_mm, "y": Y_mm, "z": Z_mm, "t": angulo_rad}
-                    """
                     nonlocal last_send, ser
-                    
-                    # Control de frecuencia: no saturamos el robot con mas de args.freq Hz
+
+                    # 1. Parsear JSON — si falla, descartar
+                    try:
+                        data = json.loads(msg)
+                    except (json.JSONDecodeError, ValueError) as e:
+                        log.warning(f"Mensaje malformado: '{msg}' — {e}")
+                        return
+
+                    # 2. Discriminar por tipo ANTES de procesar coordenadas
+                    tipo = data.get("type")
+
+                    if tipo == "ping":
+                        channel.send(json.dumps({
+                            "type": "pong",
+                            "seq":  data.get("seq", 0)
+                        }))
+                        return
+
+                    if tipo == "csv_export":
+                        sesion   = data.get("sesion",
+                                    datetime.now().strftime("%Y%m%d_%H%M%S"))
+
+                        # Crear carpeta si no existe
+                        import os
+                        os.makedirs("resultados", exist_ok=True)
+
+                        filename = f"resultados/red_{sesion}.csv"
+                        with open(filename, "w", encoding="utf-8") as f:
+                            f.write(data.get("data", ""))
+                        log.info(f"[MetricsLogger] CSV guardado: {filename}")
+                        return
+
+                    # 3. Control de frecuencia
                     now = time.time()
                     if now - last_send < min_dt:
                         return
                     last_send = now
-                    
-                    # Parseamos el JSON de Unity
+
+                    # 4. Coordenadas de control (protocolo existente)
                     try:
-                        data = json.loads(msg)
                         norm_x  = float(data.get("x", 0.5))
                         norm_y  = float(data.get("y", 0.5))
                         norm_z  = float(data.get("z", 0.0))
                         gripper = float(data.get("g", 1.0))
-                    except (json.JSONDecodeError, ValueError) as e:
-                        log.warning(f"Mensaje malformado recibido: '{msg}' — {e}")
+                    except ValueError as e:
+                        log.warning(f"Valores malformados: {e}")
                         return
 
-                    # 1. Desnormalizamos: [0,1] -> centimetros
-                    x_cm, y_cm, z_cm, t = desnormalizar(norm_x, norm_y, norm_z, gripper)
-                    
-                    # 2. Aplicamos límites de seguridad del hardware
+                    # 5. Desnormalizar y enviar al robot
+                    x_cm, y_cm, z_cm, t = desnormalizar(
+                        norm_x, norm_y, norm_z, gripper)
                     x_safe = clamp(x_cm, X_MIN, X_MAX)
                     y_safe = clamp(y_cm, Y_MIN, Y_MAX)
                     z_safe = clamp(z_cm, Z_MIN, Z_MAX)
-                    
-                    # 4. Construimos el comando JSON para el firmware del RoArm M2.
-                    #    T=1041: movimiento cartesiano absoluto.
-                    #    Coordenadas en mm (el firmware espera mm, nosotros tenemos cm → × 10).
+
                     cmd = {
                         "T": 1041,
                         "x": int(x_safe * 10),
                         "y": int(y_safe * 10),
                         "z": int(z_safe * 10),
-                        "t": round(t*5, 1)
+                        "t": round(t * 5, 1)
                     }
                     enviar_comando_serial(ser, cmd)
 
                     if TRACE_ENABLED:
                         log.debug(
-                            f"norm({norm_x:.2f}, {norm_y:.2f}, {norm_z:.2f})"
+                            f"norm({norm_x:.2f},{norm_y:.2f},{norm_z:.2f})"
                             f" g={gripper:.2f} → {cmd}"
                         )
-                        
-                    # 5. Feedback a Unity: devolvemos la posición comandada normalizada
-                    #    para que PanelControl muestre el estado del brazo en tiempo real.
-                    #    Nota: es la posición comandada, no la posición real medida del brazo.
-                    #    Para posición real habría que consultar el firmware (ampliación futura).
+
+                    # 6. Feedback a Unity
                     if channel.readyState == "open":
-                        feedback = json.dumps({
+                        channel.send(json.dumps({
                             "x": round(norm_x, 3),
                             "y": round(norm_y, 3),
                             "z": round(norm_z, 3)
-                        })
-                        channel.send(feedback)
+                        }))
 
             @pc.on("iceconnectionstatechange")
             async def on_ice_change():
