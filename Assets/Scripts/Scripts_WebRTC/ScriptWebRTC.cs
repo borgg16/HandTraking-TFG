@@ -20,19 +20,19 @@ public class ScriptWebRTC : MonoBehaviour
     [Header("Panel de Control")]
     [Tooltip("Imagen del video recibido")] //Muestra texto de ayuda emergente en el inspector para explicar la función de esta variable
     public RawImage imagenVideo; //Es raw y no Image porque vamos a asignar una textura de video que no es un sprite.
-//----------------------------------------------------------------------
-    // VARIABLES PRIVADAS para la conexión WebRTC
+                                 //----------------------------------------------------------------------
+                                 // VARIABLES PRIVADAS para la conexión WebRTC
     private RTCPeerConnection peerConnection;
     //Representa la conexion WebRTC completa entre Unity y el robot.
     //Gestiona internamente: Cifrado DTLS, control de congestion, ICE, etc.
     //Es el objeto central de la comunicacion punto a punto (P2P).
-    
+
     private RTCDataChannel dataChannel;
     //Canal de datos bidireccional dentro de la conexion WebRTC
     //Por aqui enviamos las coordenadas al robot en formato JSON
     //y recibimos las coordenadas del brazo robot de vuelta.
     //Es similar a un socket TCP pero integrado en WebRTC sin servidor.
-    
+
     private ClientWebSocket websocket;
     //Conexion al servidor de signaling de Python
     //SOLO se usará durante el establecimiento inicial de la conexion WebRTC
@@ -40,12 +40,12 @@ public class ScriptWebRTC : MonoBehaviour
     //Una vez conectados P2P, este canal queda inactivo
 
     private CancellationTokenSource cancelToken;
-    
+
     private ConcurrentQueue<string> mensajesPendientes = new ConcurrentQueue<string>();
     //Cola thread-safe: el hilo de red mete mensajes aqui(Enqueue)
     //Update() los saca y procesa en el hilo principal (TryDequeue).
     //Necesaria porque Unity solo permite tocar sus objetos desde el hilo principal.
-    
+
     private bool conexionEstablecida = false;
     //Flag para proteger los envios por DataChannel antes de que el canal este abierto (evitamos excepciones que controlar)
 
@@ -54,6 +54,9 @@ public class ScriptWebRTC : MonoBehaviour
     //EVENTO PUBLICO que nos permitirá al panel de control estar "Subcrito a las coordenadas del robot"
     public event Action<Vector3> OnCoordenadasRobot;
     //Cuando recibamos coordenadas del robot hace algo
+
+    public event Action OnComandoEnviado;
+    public event Action<int> OnPongRecibido;
 
     //----------------------------------------------
     // INICIALIZACIÓN
@@ -96,7 +99,7 @@ public class ScriptWebRTC : MonoBehaviour
             //Arrancamos el bucle de recepcion en segundo plano
             // _ = descarta el Task porque no necesitamos esperarla
             //El bucle corre indefinidamente hasta que se cancela en OnDestroy
-            _ = BucleRecepcion ();
+            _ = BucleRecepcion();
 
             //Lanzamos la creación de la oferta WebRTC.
             //StartCoroutine porque CrearOferta() es IEnumerator
@@ -104,7 +107,7 @@ public class ScriptWebRTC : MonoBehaviour
             StartCoroutine(CrearOferta());
 
         }
-        catch(Exception e)
+        catch (Exception e)
         {
             Debug.LogError($"Error WebSocket: {e.GetType().Name}");
             Debug.LogError($"Mensaje: {e.Message}");
@@ -133,13 +136,13 @@ public class ScriptWebRTC : MonoBehaviour
                     cancelToken.Token
                 );
 
-                if(resultado.MessageType == WebSocketMessageType.Close)
+                if (resultado.MessageType == WebSocketMessageType.Close)
                 {
                     Debug.Log("Servidor de señalizacion cerro la conexion");
                     break;
                 }
 
-                if(resultado.MessageType == WebSocketMessageType.Text)
+                if (resultado.MessageType == WebSocketMessageType.Text)
                 {
                     //Convertimos bytes a String y los metemos en la cola
                     // NO procesamos aqui, estamos en el hilo secundario
@@ -172,12 +175,12 @@ public class ScriptWebRTC : MonoBehaviour
     {
         //Vaciamos la cola procesando cada mensaje en el hilo principal.
         //TryDequeue devuelve false cuando la cola está vacia (while termina)
-        while(mensajesPendientes.TryDequeue(out string mensaje))
+        while (mensajesPendientes.TryDequeue(out string mensaje))
         {
             ProcesarMensajeSignaling(mensaje);
         }
 
-        if(_texturaVideoRecibida != null && imagenVideo != null)
+        if (_texturaVideoRecibida != null && imagenVideo != null)
         {
             imagenVideo.texture = _texturaVideoRecibida;
             _texturaVideoRecibida = null; //Limpiamos la variable para no reasignar la textura cada frame
@@ -190,7 +193,7 @@ public class ScriptWebRTC : MonoBehaviour
 
     void EnviarMensajesSignaling(string json)
     {
-        if(websocket == null || websocket.State != WebSocketState.Open)
+        if (websocket == null || websocket.State != WebSocketState.Open)
         {
             Debug.LogWarning("Intento de enviar mensaje con WebSocket no conectado");
             return;
@@ -220,8 +223,8 @@ public class ScriptWebRTC : MonoBehaviour
         {
             iceServers = new[]
             {
-                new RTCIceServer { 
-                    urls = new[] { "stun:stun.l.google.com:19302" } 
+                new RTCIceServer {
+                    urls = new[] { "stun:stun.l.google.com:19302" }
                     }
             }
         };
@@ -231,7 +234,7 @@ public class ScriptWebRTC : MonoBehaviour
         peerConnection = new RTCPeerConnection(ref config);
         //ref config poruqe RTCConfiguration es un struct, no una clase así que vamos a pasar la referencia del struct de la configuracion
 
-//----- CallBack de los candidatos ICE (Interactive Connectivity Establishment)---------------------------------------------------------
+        //----- CallBack de los candidatos ICE (Interactive Connectivity Establishment)---------------------------------------------------------
         peerConnection.OnIceCandidate = candidato =>
         {
             //Cuando la red descubre una posible ruta de red (Candidato), lo enviamos al robot a través del servidor de signaling
@@ -243,20 +246,20 @@ public class ScriptWebRTC : MonoBehaviour
                 sdpMid = candidato.SdpMid, //identifica a que stream pertenece el candidato
                 sdpMLineIndex = candidato.SdpMLineIndex ?? 0 //Si hay valor toma valor, en caso de null pues pone 0 (es el indice numerico del stream dentro del documento SDP)
             }));
-            
+
         };
 
         peerConnection.OnIceConnectionChange = estado =>
         {
-            Debug.Log("ICE Estado: " + estado); 
+            Debug.Log("ICE Estado: " + estado);
         };//Para ver en consola los distintos estados por los que pasa
-        
 
-//----- CallBack de recepcion del video del robot -------------------------------------------------------------------------------------
+
+        //----- CallBack de recepcion del video del robot -------------------------------------------------------------------------------------
         peerConnection.OnTrack = e =>
         {
             //OnTrack se dispara cuando el robot nos envia un archivo de video
-            if(e.Track is VideoStreamTrack videoTrack)
+            if (e.Track is VideoStreamTrack videoTrack)
             {
                 videoTrack.Enabled = true;
 
@@ -265,9 +268,9 @@ public class ScriptWebRTC : MonoBehaviour
                     _texturaVideoRecibida = tex;
                 };
             }
-        }; 
+        };
 
-//----- DataChannel para enviar comandos al robot -------------------------------------------------------------------------------------
+        //----- DataChannel para enviar comandos al robot -------------------------------------------------------------------------------------
         var opciones = new RTCDataChannelInit
         {
             ordered = true //ponerlo a true garantiza que los mensajes lleguen en orden.
@@ -293,26 +296,27 @@ public class ScriptWebRTC : MonoBehaviour
         //TODO: (lo deberia guardar en una variable)
         dataChannel.OnMessage += bytes =>
         {
-            //Parseamos el JSON y le decimos al panel de control que actualice el texto
             string json = Encoding.UTF8.GetString(bytes);
 
+            var header = JsonUtility.FromJson<MsgTipo>(json);
+            if (header != null && header.type == "pong")
+            {
+                var pong = JsonUtility.FromJson<PongMsg>(json);
+                OnPongRecibido?.Invoke(pong.seq);
+                return;
+            }
+
             var coordenadasRobot = JsonUtility.FromJson<CoordenadaMsg>(json);
-
-            if(coordenadasRobot != null)
-            {
-                Vector3 posRobot = new Vector3(coordenadasRobot.x, coordenadasRobot.y, coordenadasRobot.z);
-                OnCoordenadasRobot?.Invoke(posRobot); //si nadie se ha suscrito pues no hago nada
-            }
+            if (coordenadasRobot != null)
+                OnCoordenadasRobot?.Invoke(
+                    new Vector3(coordenadasRobot.x,
+                                coordenadasRobot.y,
+                                coordenadasRobot.z));
             else
-            {
-                Debug.LogWarning($"Mensaje del robot no reconocido: {json}");
-            }
-
-
-            //Debug.Log("Mensaje recibido del robot: " + Encoding.UTF8.GetString(bytes));  
+                Debug.LogWarning($"Mensaje no reconocido: {json}");
         };
 
-//----- Negociación de la conexión (SDP) -------------------------------------------------------------------------------------
+        //----- Negociación de la conexión (SDP) -------------------------------------------------------------------------------------
         /*
             SDP (Session Description Protocol) es un documento de texto
             que describe que capacidades tiene cada extremo: que codecs de video soporta,
@@ -329,11 +333,11 @@ public class ScriptWebRTC : MonoBehaviour
 
 
         var ofertaOp = peerConnection.CreateOffer();
-        
+
         yield return ofertaOp; //Esperamos a que se cree la oferta sin bloquear el hilo principal de Unity
 
         //TODO: Comprobar si hubo error en la oferta
-        if(ofertaOp.IsError)
+        if (ofertaOp.IsError)
         {
             Debug.LogError("Error creando la oferta: " + ofertaOp.Error.message);
             yield break; //Salimos de la corrutina si hubo error
@@ -349,7 +353,7 @@ public class ScriptWebRTC : MonoBehaviour
         yield return setLocalOp; //Esperamos a que se establezca la descripcion local
 
         //Comrprobamos que este libre de errores
-        if(setLocalOp.IsError)
+        if (setLocalOp.IsError)
         {
             Debug.LogError("Error en SetLocalDescription: " + setLocalOp.Error.message);
             yield break; //Salimos de la corrutina si hubo error
@@ -364,7 +368,7 @@ public class ScriptWebRTC : MonoBehaviour
         }));
 
         Debug.Log("Oferta SDP enviada al robot, esperando respuesta...");
-    }   
+    }
 
     //------------------------------------------------------------------------
     // PROCESAMIENTO DE MENSAJES DEL ROBOT A TRAVÉS DEL SERVIDOR DE SIGNALING
@@ -377,13 +381,13 @@ public class ScriptWebRTC : MonoBehaviour
         {
             msg = JsonUtility.FromJson<SignalingMessage>(json);
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             Debug.LogError($"Error parseando mensaje de signaling: {ex.Message}");
-            return;                              
+            return;
         }
 
-        if(msg == null || string.IsNullOrEmpty(msg.type))
+        if (msg == null || string.IsNullOrEmpty(msg.type))
         {
             Debug.LogWarning($"Mensaje de signaling con formato desconocido: {json}");
             return;
@@ -395,11 +399,11 @@ public class ScriptWebRTC : MonoBehaviour
                 //El robot acepto nuestra oferta y nos manda su SDP.
                 StartCoroutine(AplicarAnswer(msg.sdp));
                 break;
-            
+
             case "candidate":
                 //El robot nos comunica una de sus rutas de red posibles.
                 //WebRTC probara esta ruta junto con las nuestras para elegir la mejor combinacion de caminos
-                if(peerConnection == null)
+                if (peerConnection == null)
                 {
                     Debug.LogWarning("Recibido candidato ICE pero la conexión WebRTC no esta inicializada");
                     return;
@@ -421,28 +425,29 @@ public class ScriptWebRTC : MonoBehaviour
     }
 
     IEnumerator AplicarAnswer(string sdp)
+    {
+        var desc = new RTCSessionDescription
         {
-            var desc = new RTCSessionDescription{
-                type = RTCSdpType.Answer,
-                sdp = sdp
-            };
+            type = RTCSdpType.Answer,
+            sdp = sdp
+        };
 
-            var op = peerConnection.SetRemoteDescription(ref desc);
-            yield return op;
+        var op = peerConnection.SetRemoteDescription(ref desc);
+        yield return op;
 
-            if(op.IsError)
-            {
-                Debug.LogError("Error en SetRemoteDescription: " + op.Error.message);
-            }
-            else
-            {
-                Debug.Log("---- NEGOCIACION WEB_RCT COMPLETA - CONEXION P2P ESTABLECIDA -----");
-            }
+        if (op.IsError)
+        {
+            Debug.LogError("Error en SetRemoteDescription: " + op.Error.message);
         }
+        else
+        {
+            Debug.Log("---- NEGOCIACION WEB_RCT COMPLETA - CONEXION P2P ESTABLECIDA -----");
+        }
+    }
 
-//---------------------------------------------------------
-// ENLACE CON PANEL DE CONTROL PARA IMPRIMIR COORDENADAS DEL ROBOT
-//---------------------------------------------------------
+    //---------------------------------------------------------
+    // ENLACE CON PANEL DE CONTROL PARA IMPRIMIR COORDENADAS DEL ROBOT
+    //---------------------------------------------------------
     /*
         Vamos a enviar la poscion normalizada de la mano y aperturade pinza al robot
         - <param name = "posNormalizada"> x = lateral, y = altura, z = profundidad (todos entre 0 y 1) </param>
@@ -451,7 +456,7 @@ public class ScriptWebRTC : MonoBehaviour
 
     public void EnviarPosicion(Vector3 posNormalizada, float gripper)
     {
-        if(!conexionEstablecida)
+        if (!conexionEstablecida)
         {
             Debug.LogWarning("Intentando enviar comando al robot pero la conexion no esta establecida");
             return;
@@ -470,18 +475,38 @@ public class ScriptWebRTC : MonoBehaviour
                         $"\"g\":{g}}}";
         //F3 formatea el numero a 3 decimales, Clamp01 se asegura de que el valor de gripper esté entre 0 y 1
         dataChannel.Send(json);
+        OnComandoEnviado?.Invoke();
     }
 
-//------------------------------------------------------------------------
-// LIMPIEZA DE SOCKETS Y CONEXIONES AL CERRAR LA APLICACIÓN
-//------------------------------------------------------------------------
+    public void EnviarPing(int seq)
+    {
+        if (!conexionEstablecida) return;
+        dataChannel.Send($"{{\"type\":\"ping\",\"seq\":{seq}}}");
+    }
+
+    public void EnviarDatosCSV(string sesionId, string csv)
+    {
+        if (!conexionEstablecida) return;
+        string esc = csv
+            .Replace("\\", "\\\\").Replace("\"", "\\\"")
+            .Replace("\n", "\\n").Replace("\r", "");
+        dataChannel.Send(
+            $"{{\"type\":\"csv_export\","
+            + $"\"sesion\":\"{sesionId}\","
+            + $"\"data\":\"{esc}\"}}");
+        Debug.Log($"ScriptWebRTC: CSV enviado — {sesionId}");
+    }
+
+    //------------------------------------------------------------------------
+    // LIMPIEZA DE SOCKETS Y CONEXIONES AL CERRAR LA APLICACIÓN
+    //------------------------------------------------------------------------
     void OnDestroy()
     {
         //Cancelamos el token, esto proboca que el BucleRecepcion() termina en su proxima iteracion
         cancelToken?.Cancel();
 
         //Cerramos el WebSocket enviando el frame de cierre estándar
-        if(websocket?.State == WebSocketState.Open)
+        if (websocket?.State == WebSocketState.Open)
         {
             _ = websocket.CloseAsync(
                 WebSocketCloseStatus.NormalClosure,
@@ -494,9 +519,9 @@ public class ScriptWebRTC : MonoBehaviour
         peerConnection?.Close();
     }
 
-//------------------------------------------------------------------------
-// CLASES AUXILIARES PARA PARSEAR LOS MENSAJES DE SEÑALIZACIÓN
-//------------------------------------------------------------------------
+    //------------------------------------------------------------------------
+    // CLASES AUXILIARES PARA PARSEAR LOS MENSAJES DE SEÑALIZACIÓN
+    //------------------------------------------------------------------------
     [System.Serializable] //Pasa de JSON a otros datos
     public class SignalingMessage
     {
@@ -517,6 +542,9 @@ public class ScriptWebRTC : MonoBehaviour
         //TODO: Podriamos incluir el estado de la pinza
         //No incluimos "g" - el robot no nos va a enviar el estado de la pinza, solo la posicion del brazo, para simplificar
     }
+
+    [System.Serializable] private class MsgTipo { public string type; }
+    [System.Serializable] private class PongMsg  { public string type; public int seq; }
 
 
 }
