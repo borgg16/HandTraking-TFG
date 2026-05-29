@@ -2843,7 +2843,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!224 &627015454
 RectTransform:
   m_ObjectHideFlags: 0
@@ -3243,7 +3243,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Unity.XR.Interaction.Toolkit::UnityEngine.XR.Interaction.Toolkit.UI.LazyFollow
   m_Target: {fileID: 458673582}
-  m_TargetOffset: {x: 0, y: 0, z: 1.8}
+  m_TargetOffset: {x: 0, y: 0, z: 1.35}
   m_FollowInLocalSpace: 0
   m_ApplyTargetInLocalSpace: 0
   m_MovementSpeed: 6
@@ -5069,7 +5069,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!224 &1354370588
 RectTransform:
   m_ObjectHideFlags: 0
@@ -6228,7 +6228,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 75fca1050ba781343b12c4e4f17fc126, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ScriptWebRTC
-  ipRobot: 192.168.1.124
+  ipRobot: 192.168.86.203
   puertoWebRTC: 8080
   imagenVideo: {fileID: 1536436817}
 --- !u!4 &1706806974
