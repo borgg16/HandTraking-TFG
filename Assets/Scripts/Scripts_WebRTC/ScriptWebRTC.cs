@@ -49,6 +49,9 @@ public class ScriptWebRTC : MonoBehaviour
     private bool conexionEstablecida = false;
     //Flag para proteger los envios por DataChannel antes de que el canal este abierto (evitamos excepciones que controlar)
 
+    public bool ConexionEstablecida => conexionEstablecida;
+    //Propiedad publica de solo lectura para que otros scripts puedan consultar el estado de la conexion
+
     private Texture _texturaVideoRecibida = null;
 
     //EVENTO PUBLICO que nos permitirá al panel de control estar "Subcrito a las coordenadas del robot"
@@ -57,6 +60,8 @@ public class ScriptWebRTC : MonoBehaviour
 
     public event Action OnComandoEnviado;
     public event Action<int> OnPongRecibido;
+
+    public event Action OnDataChannelAbierto;
 
     //----------------------------------------------
     // INICIALIZACIÓN
@@ -283,6 +288,7 @@ public class ScriptWebRTC : MonoBehaviour
         dataChannel.OnOpen += () =>
         {
             conexionEstablecida = true;
+            OnDataChannelAbierto?.Invoke(); //Notificamos a Metrics que ya esta abierto
             Debug.Log("DataChannel abierto -- preparado para enviar comandos");
         };
 

@@ -46,12 +46,23 @@ public class NetworkMetrics : MonoBehaviour
         scriptWebRTC = rtc;
         scriptWebRTC.OnPongRecibido += ProcesarPong;
         scriptWebRTC.OnComandoEnviado += ContarComando;
+        scriptWebRTC.OnDataChannelAbierto += ArrancarPings;
 
-        InvokeRepeating(nameof(EnviarPing), intervaloPing, intervaloPing);
         InvokeRepeating(nameof(LimpiarPingsCaducados), TIMEOUT_PING, TIMEOUT_PING);
 
         Inicializado = true;
         Debug.Log("NetworkMetrics: iniciado...");
+    }
+
+    // Metodo ArrancarPings --------------------------------------
+    private bool pingsArrancados = false;
+
+    void ArrancarPings()
+    {
+        if (pingsArrancados) return; // Evitamos arrancar multiples veces si el canal se abre varias veces por alguna razon
+        pingsArrancados = true;
+        InvokeRepeating(nameof(EnviarPing), 0f, intervaloPing);
+        Debug.Log("NetworkMetrics: DataChannel abierto, arrancando pings periódicos");
     }
 
     // Funcion update ---------------------------------------
@@ -75,6 +86,12 @@ public class NetworkMetrics : MonoBehaviour
     void EnviarPing()
     {
         if(!Inicializado || scriptWebRTC == null) return;
+
+        if(!scriptWebRTC.ConexionEstablecida)
+        {
+            //Debug.LogWarning("NetworkMetrics: No se puede enviar ping, conexión no establecida");
+            return;
+        }
 
         int seq = secuenciaPing++;
         pingsPendientes[seq] = Time.realtimeSinceStartup;
@@ -165,6 +182,7 @@ public class NetworkMetrics : MonoBehaviour
         {
             scriptWebRTC.OnPongRecibido -= ProcesarPong;
             scriptWebRTC.OnComandoEnviado -= ContarComando;
+            scriptWebRTC.OnDataChannelAbierto -= ArrancarPings;
         }
     }
 
