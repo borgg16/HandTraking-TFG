@@ -19,6 +19,10 @@ public class UIManager : MonoBehaviour
     [Tooltip("Script de comunicación WebRTC — se pasa a PanelControl")]
     public ScriptWebRTC scriptWebRTC;
 
+    [Header("Metricas")]
+    public NetworkMetrics networkMetrics;
+    public MetricsLogger  metricsLogger;
+
     //----------------------------------------------------------
     // INICIO - Subscripcion a todos los eventos de los paneles
     //----------------------------------------------------------
@@ -31,6 +35,8 @@ public class UIManager : MonoBehaviour
         if (panelControl     == null) { Debug.LogError("UIManager: panelControl no asignado");     return; }
         if (panelDespedida   == null) { Debug.LogError("UIManager: panelDespedida no asignado");   return; }
         if (scriptWebRTC     == null) { Debug.LogError("UIManager: scriptWebRTC no asignado");     return; }
+        if (networkMetrics == null) { Debug.LogError("UIManager: networkMetrics no asignado"); return; }
+        if (metricsLogger  == null) { Debug.LogError("UIManager: metricsLogger no asignado");  return; }
 
         //Subcripcion a eventos
         
@@ -52,7 +58,14 @@ public class UIManager : MonoBehaviour
         //PanelDespedida: usuario quiere cerrar la app
         panelDespedida.OnCerrarApp += AlPulsarCerrarApp;
 
+        
+
         //ESTADO INCIAL
+
+        networkMetrics.Inicializar(scriptWebRTC);
+        
+        metricsLogger.Inicializar(networkMetrics, scriptWebRTC);
+
         MostrarSolo(panelBienvenida.gameObject);
 
         Debug.Log("UIManager iniciado - mostrando panel de bienvenida");
@@ -91,6 +104,7 @@ public class UIManager : MonoBehaviour
 
     void IrADespedida()
     {
+        metricsLogger.ExportarCSV();
         MostrarSolo(panelDespedida.gameObject);
         panelDespedida.Iniciar(scriptWebRTC);
         Debug.Log("UIManager -> PanelDespedida");
