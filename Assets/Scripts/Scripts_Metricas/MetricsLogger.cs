@@ -43,6 +43,7 @@ public class MetricsLogger : MonoBehaviour
     void TomarMuestra()
     {
         if(networkMetrics == null || !networkMetrics.Inicializado) return;
+        if (networkMetrics.RTT_ms == 0f) return; // Evitar muestras vacías o no inicializadas
 
         filas.Add(
             $"{DateTime.Now:HH:mm:ss.fff}," +
