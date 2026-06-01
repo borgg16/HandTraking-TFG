@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import argparse
+from datetime import datetime   # necesario para el nombre de sesion en csv_export
 
 import cv2
 import numpy as np
@@ -21,13 +22,16 @@ from av import VideoFrame
 
 # ===================== MOCKS =============================
 class DummySerial:
-    """Clase falsa para simular el comportamiento del puerto serie sin el brazo conectado"""
+    """
+    Clase falsa para simular el comportamiento del puerto serie sin el brazo conectado.
+    Implementa la misma interfaz que serial.Serial para que el resto del codigo
+    no necesite saber si hay hardware real o no.
+    """
     is_open = True
     def write(self, data):
-        pass
+        pass                        # absorbe el comando sin enviarlo a ningun hardware
     def readline(self):
-        # Simula una respuesta genérica del firmware del RoArm
-        return b'{"status":"mock_ok"}\n'
+        return b'{"status":"mock_ok"}\n'   # respuesta generica del firmware simulado
     def close(self):
         pass
 
@@ -60,19 +64,6 @@ CAM_FPS = 30
 def clamp(v, vmin, vmax):
     return max(vmin, min(vmax, v))
 
-def transformXYZ(X_cm, Y_cm, Z_cm):
-    """
-    Reordena ejes del espacio Unity al espacio físico del RoArm M2.
-    La cámara de Unity y el robot tienen convenios de ejes distintos:
-        Unity X(lateral) -> Robot Y
-        Unity Y(altura) -> Robot Z (invertida)
-        Unity Z(profund.) -> Robot X (restada desde 150cm)
-    """
-    X2_cm = 150 - Z_cm # profundidad -> alcance del brazo
-    Y2_cm = X_cm       # lateral -> lateral del robot
-    Z2_cm = 10 - Y_cm  # altura -> altura del brazo (invertida)
-    return X2_cm, Y2_cm, Z2_cm
-
 def desnormalizar(norm_x, norm_y, norm_z, gripper):
     """
     Convierte el vector normalizado [0,1] recibido de Unity
@@ -86,12 +77,26 @@ def desnormalizar(norm_x, norm_y, norm_z, gripper):
         gripper= 0.0  -> pinza cerrada  (pellizco activo en Unity)
         gripper= 1.0  -> pinza abierta
     """
-    x_cm = X_MIN + norm_x * (X_MAX - X_MIN)
-    y_cm = Y_MIN + norm_y * (Y_MAX - Y_MIN)
-    z_cm = Z_MIN + norm_z * (Z_MAX - Z_MIN)
-    # Interpolación lineal: gripper=0 → T_CLOSED, gripper=1 → T_OPEN
+    # norm_z = 0 -> brazo recogido -> X del robot pequeño
+    # norm_z = 1 -> brazo estirado -> X del robot grande
+    x_robot = X_MIN + norm_z *  (X_MAX - X_MIN)
+    #x_robot = X_MAX + norm_z *  (X_MIN - X_MAX)
+    
+    # norm_x= 0.5 -> centro -> Y del robot = 0
+    # norm_x = 0 -> izquierda -> Y negativa
+    # norm_x = 1 -> derecha -> Y positiva
+    #y_robot = Y_MIN + norm_x * (Y_MAX - Y_MIN)
+    y_robot = Y_MAX + norm_x * (Y_MIN - Y_MAX)
+    
+    # norm_y = 0.5 -> altura neutra -> Z del robot medio
+    # norm_y = 1 -> mano arriba -> Z positiva
+    # norm_y = 0 -> mano abajo -> Z negativa
+    z_robot = Z_MIN + norm_y * (Z_MAX - Z_MIN)
+    
     t = T_CLOSED + (T_OPEN - T_CLOSED) * clamp(gripper, 0.0, 1.0)
-    return x_cm, y_cm, z_cm, t
+    
+    return x_robot, y_robot, z_robot, t
+    
 
 #------ COMUNICACION SERIAL --------------------
 def crear_conexion_serial(puerto, baudrate=115200):
@@ -185,6 +190,9 @@ class CameraVideoTrack(MediaStreamTrack):
         
         # Capturamos el frame de la camara del brazo
         ret, frame_bgr = self.cap.read()
+        if self._pts % 30 == 0:   # log cada segundo aprox
+            log.info(f"CameraVideoTrack: frame {self._pts}, camara ok={ret}")
+            
         if not ret:
             # Si la camara no responde, enviamos un frame negro para no romper el stream
             frame_bgr = np.zeros((CAM_HEIGHT, CAM_WIDTH, 3), dtype=np.uint8)
@@ -221,11 +229,13 @@ async def ejecutar_webrtc(args):
         7. Envía feedback de posición comandada a Unity por el mismo DataChannel
     """
     
-    # Conexion serial al robot----------------------
+    # Conexion serial al robot ----------------------------------------
+    # En modo PRUEBA SIN BRAZO: si no hay hardware, activamos DummySerial
+    # en lugar de abortar, para poder probar todo el stack WebRTC igualmente.
     ser = crear_conexion_serial(args.puerto, args.baudrate)
     if ser is None:
         log.warning("Puerto serie no detectado. ¡Activando MODO SIMULACIÓN sin hardware!")
-        ser = DummySerial() # En lugar de hacer return, usamos el brazo virtual
+        ser = DummySerial()  # En lugar de hacer return, usamos el brazo virtual
     
     min_dt = 1.0 / args.freq if args.freq > 0 else 0.0
     last_send = 0.0
@@ -254,10 +264,6 @@ async def ejecutar_webrtc(args):
             )
             pc = RTCPeerConnection(configuration=config)
             
-            # Añadimos el track de video de la camara
-            # Unity lo recibe en peerConnection.OnTrack -> imagenVideo.texture
-            pc.addTrack(video_track)
-            
             #---- DataChannel: Unity lo crea ("comandos"), Python lo recibe aquí ----
             # Es bidireccional: Unity envia coordenadas, python devuelve la posicion del brazo
             data_channel = None
@@ -267,78 +273,92 @@ async def ejecutar_webrtc(args):
                 nonlocal data_channel
                 data_channel = channel
                 log.info(f"DataChannel '{channel.label}' establecido --- control activo.")
-                
+
                 @channel.on("message")
                 def on_message(msg):
-                    """
-                    Recibimos el vector normalizado de Unity y lo convertimos
-                    en un comando serial para el RoArm M2.
-
-                    Entrada (ScriptWebRTC.EnviarPosicion):
-                        {"x": 0.500, "y": 0.500, "z": 0.000, "g": 1.000}
-
-                    Salida al robot (comando T=1041 del firmware RoArm M2):
-                        {"T": 1041, "x": X_mm, "y": Y_mm, "z": Z_mm, "t": angulo_rad}
-                    """
                     nonlocal last_send, ser
-                    
-                    # Control de frecuencia: no saturamos el robot con mas de args.freq Hz
+
+                    # 1. Parsear JSON — si falla, descartar
+                    try:
+                        data = json.loads(msg)
+                    except (json.JSONDecodeError, ValueError) as e:
+                        log.warning(f"Mensaje malformado: '{msg}' — {e}")
+                        return
+
+                    # 2. Discriminar por tipo ANTES de procesar coordenadas
+                    tipo = data.get("type")
+
+                    if tipo == "ping":
+                        # Respondemos al ping de NetworkMetrics con un pong inmediato.
+                        # El campo "seq" permite que Unity calcule el RTT por numero de secuencia.
+                        channel.send(json.dumps({
+                            "type": "pong",
+                            "seq":  data.get("seq", 0)
+                        }))
+                        return
+
+                    if tipo == "csv_export":
+                        # MetricsLogger pide guardar el CSV de la sesion en el PC del robot.
+                        # Usamos datetime como fallback si Unity no manda nombre de sesion.
+                        sesion   = data.get("sesion",
+                                    datetime.now().strftime("%Y%m%d_%H%M%S"))
+
+                        # Crear carpeta si no existe
+                        import os
+                        os.makedirs("resultados", exist_ok=True)
+
+                        filename = f"resultados/red_{sesion}.csv"
+                        with open(filename, "w", encoding="utf-8") as f:
+                            f.write(data.get("data", ""))
+                        log.info(f"[MetricsLogger] CSV guardado: {filename}")
+                        return
+
+                    # 3. Control de frecuencia: no saturamos el robot con más de args.freq Hz
+                    #    Se aplica SOLO a los mensajes de coordenadas, no a ping/csv.
                     now = time.time()
                     if now - last_send < min_dt:
                         return
                     last_send = now
-                    
-                    # Parseamos el JSON de Unity
+
+                    # 4. Coordenadas de control (protocolo existente)
                     try:
-                        data = json.loads(msg)
                         norm_x  = float(data.get("x", 0.5))
                         norm_y  = float(data.get("y", 0.5))
                         norm_z  = float(data.get("z", 0.0))
                         gripper = float(data.get("g", 1.0))
-                    except (json.JSONDecodeError, ValueError) as e:
-                        log.warning(f"Mensaje malformado recibido: '{msg}' — {e}")
+                    except ValueError as e:
+                        log.warning(f"Valores malformados: {e}")
                         return
 
-                    # 1. Desnormalizamos: [0,1] -> centimetros
-                    x_cm, y_cm, z_cm, t = desnormalizar(norm_x, norm_y, norm_z, gripper)
-                    
-                    # 2. Reordenamos los ejes
-                    x2_cm, y2_cm, z2_cm = transformXYZ(x_cm, y_cm, z_cm)
-                    
-                    # 3. Aplicamos límites de seguridad del hardware
-                    x_safe = clamp(x2_cm, X_MIN, X_MAX)
-                    y_safe = clamp(y2_cm, Y_MIN, Y_MAX)
-                    z_safe = clamp(z2_cm, Z_MIN, Z_MAX)
-                    
-                    # 4. Construimos el comando JSON para el firmware del RoArm M2.
-                    #    T=1041: movimiento cartesiano absoluto.
-                    #    Coordenadas en mm (el firmware espera mm, nosotros tenemos cm → × 10).
+                    # 5. Desnormalizar y enviar al robot
+                    x_cm, y_cm, z_cm, t = desnormalizar(
+                        norm_x, norm_y, norm_z, gripper)
+                    x_safe = clamp(x_cm, X_MIN, X_MAX)
+                    y_safe = clamp(y_cm, Y_MIN, Y_MAX)
+                    z_safe = clamp(z_cm, Z_MIN, Z_MAX)
+
                     cmd = {
                         "T": 1041,
                         "x": int(x_safe * 10),
                         "y": int(y_safe * 10),
                         "z": int(z_safe * 10),
-                        "t": round(t, 3)
+                        "t": round(t * 5, 1)   # el firmware espera t*5 redondeado a 1 decimal
                     }
                     enviar_comando_serial(ser, cmd)
 
                     if TRACE_ENABLED:
                         log.debug(
-                            f"norm({norm_x:.2f}, {norm_y:.2f}, {norm_z:.2f})"
+                            f"norm({norm_x:.2f},{norm_y:.2f},{norm_z:.2f})"
                             f" g={gripper:.2f} → {cmd}"
                         )
-                        
-                    # 5. Feedback a Unity: devolvemos la posición comandada normalizada
-                    #    para que PanelControl muestre el estado del brazo en tiempo real.
-                    #    Nota: es la posición comandada, no la posición real medida del brazo.
-                    #    Para posición real habría que consultar el firmware (ampliación futura).
+
+                    # 6. Feedback a Unity
                     if channel.readyState == "open":
-                        feedback = json.dumps({
+                        channel.send(json.dumps({
                             "x": round(norm_x, 3),
                             "y": round(norm_y, 3),
                             "z": round(norm_z, 3)
-                        })
-                        channel.send(feedback)
+                        }))
 
             @pc.on("iceconnectionstatechange")
             async def on_ice_change():
@@ -369,6 +389,12 @@ async def ejecutar_webrtc(args):
                     desc = RTCSessionDescription(sdp=msg["sdp"], type="offer")
                     await pc.setRemoteDescription(desc)
                     
+                    # El track de video se añade AQUI, tras setRemoteDescription,
+                    # igual que en safe8. Añadirlo antes provocaría que aiortc
+                    # incluya el track en el SDP local antes de conocer el remoto.
+                    pc.addTrack(video_track)
+                    log.info("Video track añadido a la PeerConnection")
+                    
                     # Ahora si podemos añadir los candidatos que llegaron antes que la oferta
                     for candidato in candidatos_pendientes:
                         await pc.addIceCandidate(candidato)
@@ -389,8 +415,14 @@ async def ejecutar_webrtc(args):
                         "type": "answer",
                         "sdp": pc.localDescription.sdp
                     }))
-                    log.info("Answer enviado a Unity -- aguardando establecimiento ICE...")
+                    log.info(f"SDP del answer contiene video: {'m=video' in pc.localDescription.sdp}")
                     
+                    for linea in pc.localDescription.sdp.split("\r\n"):
+                        if linea.startswith("a=rtpmap") or linea.startswith("m=video"):
+                            log.info(f"SDP codec: {linea}")
+                            
+                    log.info("Answer enviado a Unity -- aguardando establecimiento ICE...")
+                        
                 #---- Candidatos ICE de Unity (trickle ICE) ----
                 elif tipo == "candidate":
                     candidate_str = msg.get("candidate", "")
@@ -427,17 +459,20 @@ async def ejecutar_webrtc(args):
         
     finally:
         #---- Limpieza de recursos al salir ----
-        video_track.detener()
+        if video_track is not None:
+            video_track.detener()
         
         if ser and ser.is_open:
             ser.close()
             log.info("Puerto serial cerrado")
         
-        if pc is not None:
-            try:
-                await pc.close()
-            except Exception:
-                pass
+        #if pc is not None:
+        #    try:
+        #       await pc.close()
+        #    except Exception:
+        #       pass
+        
+        video_track = None
             
         log.info("Sesion WebRTC finalizada")
                         
