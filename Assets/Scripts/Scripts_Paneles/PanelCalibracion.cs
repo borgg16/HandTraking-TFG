@@ -71,8 +71,8 @@ public class PanelCalibracion : MonoBehaviour
     void Start()
     {
         //Configurar los botones para seleccionar la mano
-        botonIzquierda.onClick.AddListener(() => SeleccionarMano("izquierda"));
-        botonDerecha.onClick.AddListener(() => SeleccionarMano("derecha"));
+        botonIzquierda.onClick.AddListener(() => SeleccionarMano("left"));
+        botonDerecha.onClick.AddListener(() => SeleccionarMano("right"));
 
         //Comenzamos con el estado de Seleccion de Mano
         MostrarSeleccionMano();
@@ -92,7 +92,7 @@ public class PanelCalibracion : MonoBehaviour
         maximoIzquierda.ResetearMaximo();
         maximoDerecha.ResetearMaximo();
         MostrarSeleccionMano();
-        Debug.Log("PanelCalibracion: calibracion reseteada");
+        Debug.Log("Calibration Panel: calibration reset");
     }
 
 
@@ -126,7 +126,7 @@ public class PanelCalibracion : MonoBehaviour
     void MostrarSeleccionMano()
     {
         estadoActual = Estado.SeleccionMano;
-        textoCalibracion.text = "¿Qué brazo deseas calibrar?";
+        textoCalibracion.text = "Which arm do you want to calibrate?";
         botonIzquierda.gameObject.SetActive(true);
         botonDerecha.gameObject.SetActive(true);
         MostrarImagen(null);
@@ -138,7 +138,7 @@ public class PanelCalibracion : MonoBehaviour
         botonIzquierda.gameObject.SetActive(false);
         botonDerecha.gameObject.SetActive(false);
 
-        if(mano == "izquierda")
+        if(mano == "left")
         {
             manoSeleccionada = maximoIzquierda;
         }
@@ -153,7 +153,7 @@ public class PanelCalibracion : MonoBehaviour
     void MostrarInstrucciones(string mano)
     {
         estadoActual = Estado.Instrucciones;
-        textoCalibracion.text = $"Replica con tu brazo {mano} la posición de la imagen:";
+        textoCalibracion.text = $"Replicate the position in the image with your {mano} arm:";
         MostrarImagen(ElegirTexture2D(spriteNeutroIzquierda, spriteNeutroDerecha));
         Invoke(nameof(ActivarEsperaPellizco),1.5f);
     }
@@ -190,9 +190,11 @@ public class PanelCalibracion : MonoBehaviour
         {
             manoSeleccionada.GuardarNeutro();
             MostrarImagen(null);
-            textoCalibracion.text = "¡Postura neutra guardada!\n"
-                                + "Ahora estira el brazo al máximo\n"
-                                + "hacia el frente y haz otro pellizco.";
+            textoCalibracion.text = "Neutral posture maintained!"
+                            + "\n"
+                            + "Now extend your arm as far as it will go"
+                            + "\n"
+                            + "forward and do another pinch.";
             Invoke(nameof(ActivarEsperaMaximo),1.5f);
 
         }else if (estadoActual == Estado.EsperandoMaximo)
@@ -213,9 +215,9 @@ public class PanelCalibracion : MonoBehaviour
         estadoActual = Estado.Instrucciones;
         timerExploracion = tiempoExploracion;
 
-        textoCalibracion.text = "¡Alcance guardado!\n"
-                                + "Mueve la mano arriba/abajo\n"
-                                + "e izquierda/derecha libremente.\n"
+        textoCalibracion.text = "Reach saved!\n"
+                                +  "Move your hand up/down\n"
+                                +  "and left/right freely.\n"
                                 + $"{tiempoExploracion:F0}s..."; //F0 es sin decimales
         
         //Mostramos la esfera para que el usuario vea su espacio de trabajo
@@ -244,9 +246,9 @@ public class PanelCalibracion : MonoBehaviour
         timerExploracion -= Time.deltaTime;
         int segsRestantes = Mathf.CeilToInt(timerExploracion);
 
-        textoCalibracion.text = "Mueve la mano libremente\n"
-                                + "arriba/abajo e izquierda/derecha\n"
-                                + $"{segsRestantes}s restantes...";
+        textoCalibracion.text = "Move your hand freely\n"
+                                + "up/down and left/right\n"
+                                + $"{segsRestantes}s remaining...";
 
         if(timerExploracion <= 0f)
         {
@@ -259,7 +261,7 @@ public class PanelCalibracion : MonoBehaviour
     void MostrarConfirmacion()
     {
         estadoActual = Estado.Guardado;
-        textoCalibracion.text = "¡Posición guardada!\nYa puedes controlar el brazo robot con esta mano.";
+        textoCalibracion.text = "Position saved!\nYou can now control the robot arm with this hand.";
         Invoke(nameof(NotificarCalibrado),3f); //despues de 3 segundos se cierra el panel, esto es importante para que el usuario tenga tiempo de leer la confirmacion antes de que el panel desaparezca, lo que mejora la experiencia del usuario.
     }
     
@@ -275,8 +277,8 @@ public class PanelCalibracion : MonoBehaviour
 
         //Notificamos al UIManager para que active el Panel de Control con estos datos
         OnCalibrado?.Invoke(datos);
-        Debug.Log($"Calibración completada — panel de control activo " +
-                $"(mano {(esIzquierda ? "izquierda" : "derecha")})");
+        Debug.Log($"Calibration completed — control panel active " +
+                $"(hand {(esIzquierda ? "left" : "right")})");
     }
     
     //--------------------------------------------------------
@@ -285,8 +287,8 @@ public class PanelCalibracion : MonoBehaviour
     
     void OnDestroy()
     {
-        if (botonIzquierda != null) botonIzquierda.onClick.RemoveListener(() => SeleccionarMano("izquierda"));
-        if (botonDerecha   != null) botonDerecha.onClick.RemoveListener(  () => SeleccionarMano("derecha"));
+        if (botonIzquierda != null) botonIzquierda.onClick.RemoveListener(() => SeleccionarMano("left"));
+        if (botonDerecha   != null) botonDerecha.onClick.RemoveListener(  () => SeleccionarMano("right"));
     }
 
 }

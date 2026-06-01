@@ -18,8 +18,8 @@ public class PanelDespedida : MonoBehaviour
     [Header("Configuración")]
     [Tooltip("Mensaje personalizable que aparece en la pantalla de despedida")]
     [TextArea(2, 4)]
-    public string mensajeDespedida = "Gracias por usar el sistema de control.\n"+
-                                    "La conexión con el brazo robot ha sido cerrada.";
+    public string mensajeDespedida = "Thanks for using the control system.\n"+
+                                    "The connection with the robot arm has been closed.";
 
     [Tooltip("Segundos que tarda la secuencia de cierre")]
     public float tiempoCierre = 2f;
@@ -39,9 +39,9 @@ public class PanelDespedida : MonoBehaviour
         scriptWebRTC = rtc;
 
         //Configuramos los textos iniciales
-        if(textoTitulo != null) textoTitulo.text = "Finalizando conexión...";
+        if(textoTitulo != null) textoTitulo.text = "Ending connection...";
         if(textoMensaje != null) textoMensaje.text = mensajeDespedida;
-        if(textoEstado != null) textoEstado.text = "Cerrando canal de datos...";
+        if(textoEstado != null) textoEstado.text = "Closing data channel...";
 
         //Ocultamos los botones hasta que el cierre se complete
         if(botonVolverInicio != null) botonVolverInicio.gameObject.SetActive(false);
@@ -67,18 +67,18 @@ public class PanelDespedida : MonoBehaviour
     IEnumerator SecuenciaCierre()
     {
         //Paso 1: Cierre del DataChannel
-        ActualizarEstado("Cerrando canal de datos...");
+        ActualizarEstado("Closing data channel...");
         yield return new WaitForSeconds(tiempoCierre * 0.33f);
 
         //Paso 2: Cierre del PeerConnection
-        ActualizarEstado("Cerrando conexion P2P...");
+        ActualizarEstado("Closing P2P connection...");
         yield return new WaitForSeconds(tiempoCierre * 0.34f);
 
         //ScriptWebRTC cierra todo en su OnDestroy()
 
         //Cierre completado
-        ActualizarEstado("CONEXION CERRADA CORRECTAMENTE");
-        if(textoTitulo != null) textoTitulo.text = "Sesion finalizada";
+        ActualizarEstado("CONNECTION CLOSED CORRECTLY");
+        if(textoTitulo != null) textoTitulo.text = "Session ended";
 
         //Mostramos los botones ahora que el cierre está completo
         if(botonVolverInicio != null) botonVolverInicio.gameObject.SetActive(true);
