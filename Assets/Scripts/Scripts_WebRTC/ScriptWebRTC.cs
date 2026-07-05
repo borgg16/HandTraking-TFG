@@ -58,6 +58,8 @@ public class ScriptWebRTC : MonoBehaviour
     public event Action<Vector3> OnCoordenadasRobot;
     //Cuando recibamos coordenadas del robot hace algo
 
+    public event Action<Double> OnFrameTs; //Timestamp del frame de video recibido, para medir latencia
+
     public event Action OnComandoEnviado;
     public event Action<int> OnPongRecibido;
 
@@ -304,6 +306,13 @@ public class ScriptWebRTC : MonoBehaviour
         {
             string json = Encoding.UTF8.GetString(bytes);
 
+            var tipo = JsonUtility.FromJson<FrameTsMsg>(json);
+            if(tipo != null && tipo.type == "frame_ts")
+            {
+                OnFrameTs?.Invoke(tipo.t);
+                return;
+            }
+
             var header = JsonUtility.FromJson<MsgTipo>(json);
             if (header != null && header.type == "pong")
             {
@@ -547,6 +556,13 @@ public class ScriptWebRTC : MonoBehaviour
 
         //TODO: Podriamos incluir el estado de la pinza
         //No incluimos "g" - el robot no nos va a enviar el estado de la pinza, solo la posicion del brazo, para simplificar
+    }
+
+    [System.Serializable]
+    public class FrameTsMsg
+    {
+        public string type;
+        public double t;
     }
 
     [System.Serializable] private class MsgTipo { public string type; }
