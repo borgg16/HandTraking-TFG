@@ -14,7 +14,7 @@ log = logging.getLogger(__name__)
 #---------------------------------------
 #CONFIGURACION
 #---------------------------------------
-HOST = "10.178.100.137"
+HOST = "192.168.3.27"
 #Ponerlo todo a 0.0.0.0 significa que acepta conexiones desde cualquier IP de la red
 #Si solo queremos aceptar  conexiones locales(mismo PC), usamos "127.0.0.1"
 

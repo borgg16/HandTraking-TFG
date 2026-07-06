@@ -173,13 +173,18 @@ class CameraVideoTrack(MediaStreamTrack):
         self._next_time = time.time() + 1.0 / CAM_FPS
         
         # Capturamos el frame de la camara del brazo
-        ret, frame_bgr = self.cap.read()
-        if self._pts % 30 == 0:   # log cada segundo aprox
-            log.info(f"CameraVideoTrack: frame {self._pts}, camara ok={ret}")
+        #ret, frame_bgr = self.cap.read()
+        #if self._pts % 30 == 0:   # log cada segundo aprox
+        #    log.info(f"CameraVideoTrack: frame {self._pts}, camara ok={ret}")
+        #ASI QUE ERA COMO ESTABA, BLOQUEABA EL EVENT LOOP
+        
+        loop = asyncio.get_event_loop()
+        ret, frame_bgr = await loop.run_in_executor(None, self.cap.read)
             
         if not ret:
             # Si la camara no responde, enviamos un frame negro para no romper el stream
             frame_bgr = np.zeros((CAM_HEIGHT, CAM_WIDTH, 3), dtype=np.uint8)
+            cv2.putText(frame_bgr, "CAMARA NO DISPONIBLE", (50, CAM_HEIGHT // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,0,255), 2)
             
         # OpenCV trabaja en BGR; av/WebRTC espera RGB
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
