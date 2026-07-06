@@ -51,7 +51,13 @@ public class VideoLatencyMedidor : MonoBehaviour
     //-------------------------------------------
     void AbrirCSV()
     {
+#if UNITY_EDITOR
+        string carpeta = Path.Combine(Application.dataPath, "../resultados_unity");
+        if (!Directory.Exists(carpeta)) Directory.CreateDirectory(carpeta);
+        string ruta = Path.Combine(carpeta, nombreArchivoCSV);
+#else
         string ruta  = Path.Combine(Application.persistentDataPath, nombreArchivoCSV);
+#endif
 
         try
         {

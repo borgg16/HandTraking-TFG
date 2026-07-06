@@ -44,6 +44,11 @@ public class PanelControl : MonoBehaviour
     [Header("Esfera de Referencia")]
     public EsferaReferencia esferaReferencia;
 
+    [Header("Frecuencia de envío")]
+    [Tooltip("Frecuencia máxima de envío de comandos al robot en Hz")]
+    public float frecuenciaEnvioHz = 50f;
+    private float ultimoEnvio = 0f;
+
     //EVENTOS PARA LOS CAMBIOS DE PANELES
     public event Action OnVolverCalibrar;
     public event Action OnFinalizar;
@@ -197,7 +202,12 @@ public class PanelControl : MonoBehaviour
         }
 
         //----- Enviar al robot --------------------------------------
-        scriptWebRTC.EnviarPosicion(normalizada, gripper);
+        // Limitamos la frecuencia de envío usando Time.time para evitar sobrecargar la red
+        if (Time.time - ultimoEnvio >= 1f / frecuenciaEnvioHz)
+        {
+            ultimoEnvio = Time.time;
+            scriptWebRTC.EnviarPosicion(normalizada, gripper);
+        }
     }
 
     //----------------------------------------------------------------

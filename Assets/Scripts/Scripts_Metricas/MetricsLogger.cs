@@ -33,7 +33,13 @@ public class MetricsLogger : MonoBehaviour
         networkMetrics = nm;
         scriptWebRTC = rtc;
         sesionId = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+#if UNITY_EDITOR
+        string carpeta = Path.Combine(Application.dataPath, "../resultados_unity");
+        if (!Directory.Exists(carpeta)) Directory.CreateDirectory(carpeta);
+        rutaArchivo = Path.Combine(carpeta, $"red_{sesionId}.csv");
+#else
         rutaArchivo = Path.Combine(Application.persistentDataPath, $"red_{sesionId}.csv");
+#endif
 
         InvokeRepeating(nameof(TomarMuestra), intervaloMuestra, intervaloMuestra);
         Debug.Log($"[MetricsLogger] Sesión iniciada: {sesionId} -> archivo local: {rutaArchivo}");
