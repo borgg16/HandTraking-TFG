@@ -926,7 +926,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 75fca1050ba781343b12c4e4f17fc126, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ScriptWebRTC
-  ipRobot: 192.168.1.124
+  ipRobot: 192.168.3.27
   puertoWebRTC: 8080
   imagenVideo: {fileID: 778898615}
 --- !u!1 &1564492350
@@ -973,6 +973,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: a5e8c6b75fa5b234d83cc77b4c0707c2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VideoLatencyMedidor
+  scriptWebRTC: {fileID: 1469081130}
+  textoTimestampUnity: {fileID: 279985974}
+  nombreArchivoCSV: latencia_video_pruebaX.csv
+  flushCada: 20
 --- !u!1 &1586038760
 GameObject:
   m_ObjectHideFlags: 0

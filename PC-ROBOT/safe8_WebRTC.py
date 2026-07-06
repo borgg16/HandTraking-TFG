@@ -278,7 +278,9 @@ async def ejecutar_webrtc(args):
                     if tipo == "ping":
                         channel.send(json.dumps({
                             "type": "pong",
-                            "seq":  data.get("seq", 0)
+                            "seq":  data.get("seq", 0),
+                            "client_ts": data.get("client_ts"),
+                            "server_ts": int(time.time() * 1000)
                         }))
                         return
 

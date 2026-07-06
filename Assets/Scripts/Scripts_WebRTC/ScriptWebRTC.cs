@@ -54,6 +54,28 @@ public class ScriptWebRTC : MonoBehaviour
 
     private Texture _texturaVideoRecibida = null;
 
+    // Sincronización de relojes por RTT
+    private double clockOffsetMs = 0;
+    private bool clockOffsetCalculado = false;
+
+    public double ClockOffsetMs => clockOffsetMs;
+    public bool ClockOffsetCalculado => clockOffsetCalculado;
+
+    private void ActualizarClockOffset(double nuevoOffset)
+    {
+        if (!clockOffsetCalculado)
+        {
+            clockOffsetMs = nuevoOffset;
+            clockOffsetCalculado = true;
+            Debug.Log($"ScriptWebRTC: Offset de reloj inicial calculado: {clockOffsetMs:F1} ms");
+        }
+        else
+        {
+            // Filtro paso bajo para suavizar el offset (alpha = 0.1)
+            clockOffsetMs = 0.1 * nuevoOffset + 0.9 * clockOffsetMs;
+        }
+    }
+
     //EVENTO PUBLICO que nos permitirá al panel de control estar "Subcrito a las coordenadas del robot"
     public event Action<Vector3> OnCoordenadasRobot;
     //Cuando recibamos coordenadas del robot hace algo
@@ -292,6 +314,7 @@ public class ScriptWebRTC : MonoBehaviour
             conexionEstablecida = true;
             OnDataChannelAbierto?.Invoke(); //Notificamos a Metrics que ya esta abierto
             Debug.Log("DataChannel abierto -- preparado para enviar comandos");
+            StartCoroutine(BucleClockSync());
         };
 
         dataChannel.OnClose += () =>
@@ -317,7 +340,19 @@ public class ScriptWebRTC : MonoBehaviour
             if (header != null && header.type == "pong")
             {
                 var pong = JsonUtility.FromJson<PongMsg>(json);
-                OnPongRecibido?.Invoke(pong.seq);
+                if (pong.client_ts > 0 && pong.server_ts > 0)
+                {
+                    double tRecibidoMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    double rtt = tRecibidoMs - pong.client_ts;
+                    double estimatedServerTime = pong.client_ts + (rtt / 2.0);
+                    double offset = pong.server_ts - estimatedServerTime;
+                    ActualizarClockOffset(offset);
+                }
+
+                if (pong.seq >= 0)
+                {
+                    OnPongRecibido?.Invoke(pong.seq);
+                }
                 return;
             }
 
@@ -496,7 +531,8 @@ public class ScriptWebRTC : MonoBehaviour
     public void EnviarPing(int seq)
     {
         if (!conexionEstablecida) return;
-        dataChannel.Send($"{{\"type\":\"ping\",\"seq\":{seq}}}");
+        long ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        dataChannel.Send($"{{\"type\":\"ping\",\"seq\":{seq},\"client_ts\":{ts}}}");
     }
 
     public void EnviarDatosCSV(string sesionId, string csv)
@@ -566,7 +602,25 @@ public class ScriptWebRTC : MonoBehaviour
     }
 
     [System.Serializable] private class MsgTipo { public string type; }
-    [System.Serializable] private class PongMsg  { public string type; public int seq; }
+    
+    [System.Serializable]
+    private class PongMsg
+    {
+        public string type;
+        public int seq;
+        public double client_ts;
+        public double server_ts;
+    }
+
+    private IEnumerator BucleClockSync()
+    {
+        int seqSync = -1000;
+        while (conexionEstablecida && dataChannel != null)
+        {
+            EnviarPing(seqSync--);
+            yield return new WaitForSeconds(2.0f);
+        }
+    }
 
 
 }

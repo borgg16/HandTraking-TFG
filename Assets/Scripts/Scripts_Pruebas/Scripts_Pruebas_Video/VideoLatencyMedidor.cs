@@ -76,12 +76,19 @@ public class VideoLatencyMedidor : MonoBehaviour
         //TimeStamp actual de Unity en ms
         double tRecibidoMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
-        double latenciaMs = tRecibidoMs - tCapturaMs;
+        double tCapturaCorregido = tCapturaMs;
+        if (scriptWebRTC != null && scriptWebRTC.ClockOffsetCalculado)
+        {
+            tCapturaCorregido = tCapturaMs - scriptWebRTC.ClockOffsetMs;
+        }
+
+        double latenciaMs = tRecibidoMs - tCapturaCorregido;
         
         // Por seguridad vamos a hacer un "filtrado de sanidad" es decir descartar valores absurdos
-        if(latenciaMs < 0 || latenciaMs > 5000)
+        // Toleramos un pequeño margen de -50ms por jitter/fluctuación transitoria del reloj
+        if(latenciaMs < -50 || latenciaMs > 5000)
         {
-            Debug.LogWarning($"VideoLatencyMedidor: Latencia de video fuera de rango (descartada): {latenciaMs:F1} ms");
+            Debug.LogWarning($"VideoLatencyMedidor: Latencia de video fuera de rango (descartada): {latenciaMs:F1} ms (Offset: {(scriptWebRTC != null ? scriptWebRTC.ClockOffsetMs : 0):F1} ms)");
             return;
         }
 

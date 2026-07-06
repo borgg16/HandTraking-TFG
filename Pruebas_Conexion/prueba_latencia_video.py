@@ -185,12 +185,18 @@ async def ejecutar_prueba(ip_signaling: str, puerto_signaling: int, indice_camar
 
         @channel.on("message")
         def on_message(message):
-            # En este escenario de prueba no procesamos comandos de mano/brazo,
-            # solo registramos que algo llegó (por si Unity manda algo inesperado)
             try:
                 data = json.loads(message)
                 tipo = data.get("type", "desconocido")
-                if tipo != "frame_ts":  # evitar loguear nuestro propio eco si lo hubiera
+                if tipo == "ping":
+                    channel.send(json.dumps({
+                        "type": "pong",
+                        "seq": data.get("seq", 0),
+                        "client_ts": data.get("client_ts"),
+                        "server_ts": int(time.time() * 1000)
+                    }))
+                    return
+                elif tipo != "frame_ts":  # evitar loguear nuestro propio eco si lo hubiera
                     log.info(f"Mensaje recibido por DataChannel: tipo='{tipo}'")
             except json.JSONDecodeError:
                 log.warning("Mensaje no-JSON recibido por DataChannel")
