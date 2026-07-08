@@ -975,7 +975,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::VideoLatencyMedidor
   scriptWebRTC: {fileID: 1469081130}
   textoTimestampUnity: {fileID: 279985974}
-  nombreArchivoCSV: latencia_video_pruebaX.csv
+  nombreArchivoCSV: CARGA_ALTA.csv
   flushCada: 20
 --- !u!1 &1586038760
 GameObject:

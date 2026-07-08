@@ -523,7 +523,7 @@ public class ScriptWebRTC : MonoBehaviour
                         $"\"y\":{y}," +
                         $"\"z\":{z}," +
                         $"\"g\":{g}}}";
-        //F3 formatea el numero a 3 decimales, Clamp01 se asegura de que el valor de gripper esté entre 0 y 1
+
         dataChannel.Send(json);
         OnComandoEnviado?.Invoke();
     }

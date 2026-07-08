@@ -75,8 +75,12 @@ public class NetworkMetrics : MonoBehaviour
             comandosEnVentana = 0;
             timerCmdRate = 0f;
         }
+
         // Actualizar UI
-        if (textoRTT     != null) textoRTT.text     = $"RTT: {RTT_ms:F0} ms";
+        if (textoRTT != null)
+        {
+            textoRTT.text = $"RTT: {RTT_ms:F0} ms";
+        }
         if (textoJitter  != null) textoJitter.text  = $"Jitter: {Jitter_ms:F0} ms";
         if (textoCmdHz   != null) textoCmdHz.text   = $"Hz: {ComandosPorSegundo:F0}";
         if (textoPerdida != null) textoPerdida.text = $"Pérd: {TasaPerdidaPct:F1} %";

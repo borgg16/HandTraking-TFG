@@ -307,9 +307,10 @@ async def ejecutar_webrtc(args):
 
                         # Crear carpeta si no existe
                         import os
-                        os.makedirs("resultados", exist_ok=True)
+                        ruta_resultados = "Pruebas_Conexion/resultados" if os.path.exists("Pruebas_Conexion") else "resultados"
+                        os.makedirs(ruta_resultados, exist_ok=True)
 
-                        filename = f"resultados/red_{sesion}.csv"
+                        filename = f"{ruta_resultados}/red_{sesion}.csv"
                         with open(filename, "w", encoding="utf-8") as f:
                             f.write(data.get("data", ""))
                         log.info(f"[MetricsLogger] CSV guardado: {filename}")

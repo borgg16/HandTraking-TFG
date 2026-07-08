@@ -30,7 +30,10 @@ csv_path = sys.argv[1]
 sesion   = Path(csv_path).stem.replace("red_", "")
 
 # ── Carpeta de resultados ─────────────────────────────────────────────
-CARPETA_RESULTADOS = Path("resultados")
+if Path("Pruebas_Conexion").exists():
+    CARPETA_RESULTADOS = Path("Pruebas_Conexion/resultados")
+else:
+    CARPETA_RESULTADOS = Path("resultados")
 CARPETA_RESULTADOS.mkdir(exist_ok=True)
 
 df = pd.read_csv(csv_path)

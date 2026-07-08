@@ -46,13 +46,15 @@ public class VideoLatencyMedidor : MonoBehaviour
         Debug.Log("VideoLatencyMedidor: Sesion iniciada - esperando timestamps de video...");
     }
 
+
+
     //-------------------------------------------
     // ABRIMOS EL CSV
     //-------------------------------------------
     void AbrirCSV()
     {
 #if UNITY_EDITOR
-        string carpeta = Path.Combine(Application.dataPath, "../resultados_unity");
+        string carpeta = Path.Combine(Application.dataPath, "../Pruebas_Conexion/resultados_unity");
         if (!Directory.Exists(carpeta)) Directory.CreateDirectory(carpeta);
         string ruta = Path.Combine(carpeta, nombreArchivoCSV);
 #else
