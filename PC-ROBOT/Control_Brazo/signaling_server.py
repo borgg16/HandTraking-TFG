@@ -2,6 +2,9 @@ import asyncio
 from aiohttp import web, WSMsgType
 import json
 import logging
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Configuracion")))
 import config
 
 #Configuramos logging para ver que esta pasando sin tener que pasar por debugger

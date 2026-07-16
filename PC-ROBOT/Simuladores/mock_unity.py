@@ -3,6 +3,9 @@ import json
 import logging
 import websockets
 from aiortc import RTCPeerConnection, RTCSessionDescription
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Configuracion")))
 import config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [Mock Unity] %(message)s")

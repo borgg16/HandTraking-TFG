@@ -86,5 +86,10 @@ crashlytics-build.properties
 repomix-output.xml
 
 # Documentación local e informes de pruebas (no subir a GitHub)
-EXPLICACION_LATENCIA.md
-Pruebas_Conexion/CAMBIOS_SEGURIDAD.md
+Pruebas_Conexion/Documentos_De_Analisis/EXPLICACION_LATENCIA.md
+Pruebas_Conexion/Documentos_De_Analisis/CAMBIOS_SEGURIDAD.md
+Pruebas_Conexion/Documentos_De_Analisis/EXPLICACION_CARPETAS.md
+
+# Caché de compilación de Python
+__pycache__/
+*.pyc

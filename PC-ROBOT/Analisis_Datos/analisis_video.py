@@ -20,7 +20,7 @@ from pathlib import Path
 # ── Configuración General ─────────────────────────────────────────────
 WARMUP_SECONDS = 5.0  # Duración de la exclusión de fase de calentamiento (en segundos)
 if Path("Pruebas_Conexion").exists():
-    CARPETA_RESULTADOS = Path("Pruebas_Conexion/resultados")
+    CARPETA_RESULTADOS = Path("Pruebas_Conexion/Resultados_Robot")
 else:
     CARPETA_RESULTADOS = Path("resultados")
 CARPETA_RESULTADOS.mkdir(exist_ok=True)

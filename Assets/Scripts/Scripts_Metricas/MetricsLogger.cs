@@ -34,7 +34,7 @@ public class MetricsLogger : MonoBehaviour
         scriptWebRTC = rtc;
         sesionId = DateTime.Now.ToString("yyyyMMdd_HHmmss");
 #if UNITY_EDITOR
-        string carpeta = Path.Combine(Application.dataPath, "../Pruebas_Conexion/resultados_unity");
+        string carpeta = Path.Combine(Application.dataPath, "../Pruebas_Conexion/Resultados_Unity");
         if (!Directory.Exists(carpeta)) Directory.CreateDirectory(carpeta);
         rutaArchivo = Path.Combine(carpeta, $"red_{sesionId}.csv");
 #else

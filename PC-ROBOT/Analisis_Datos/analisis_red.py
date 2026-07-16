@@ -31,7 +31,7 @@ sesion   = Path(csv_path).stem.replace("red_", "")
 
 # ── Carpeta de resultados ─────────────────────────────────────────────
 if Path("Pruebas_Conexion").exists():
-    CARPETA_RESULTADOS = Path("Pruebas_Conexion/resultados")
+    CARPETA_RESULTADOS = Path("Pruebas_Conexion/Resultados_Robot")
 else:
     CARPETA_RESULTADOS = Path("resultados")
 CARPETA_RESULTADOS.mkdir(exist_ok=True)
