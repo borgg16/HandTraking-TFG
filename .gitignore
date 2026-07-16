@@ -93,3 +93,4 @@ Pruebas_Conexion/Documentos_De_Analisis/EXPLICACION_CARPETAS.md
 # Caché de compilación de Python
 __pycache__/
 *.pyc
+/iperf3.21_64
