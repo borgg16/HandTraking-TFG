@@ -89,6 +89,9 @@ repomix-output.xml
 Pruebas_Conexion/Documentos_De_Analisis/EXPLICACION_LATENCIA.md
 Pruebas_Conexion/Documentos_De_Analisis/CAMBIOS_SEGURIDAD.md
 Pruebas_Conexion/Documentos_De_Analisis/EXPLICACION_CARPETAS.md
+Pruebas_Conexion/Documentos_De_Analisis/Guia_Pruebas_Latencia_Ethernet.md
+Pruebas_Conexion/Documentos_De_Analisis/Resultados_Y_Conclusiones_Pruebas.md
+Pruebas_Conexion/Resultados_Ethernet/
 
 # Caché de compilación de Python
 __pycache__/

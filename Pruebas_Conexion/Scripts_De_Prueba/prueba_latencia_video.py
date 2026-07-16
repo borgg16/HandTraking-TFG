@@ -13,6 +13,13 @@ import json
 import logging
 import time
 import argparse
+import os
+import sys
+
+# Añadir ruta para importar configuración centralizada
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "PC-ROBOT", "Configuracion")))
+import config as central_config
+
 
 import cv2
 import numpy as np
@@ -203,7 +210,13 @@ async def ejecutar_prueba(ip_signaling: str, puerto_signaling: int, indice_camar
 
     try:
         async with websockets.connect(uri) as ws:
-            log.info("Conectado al servidor de señalización. Esperando oferta de Unity...")
+            # Enviar mensaje de autenticación inmediatamente
+            auth_msg = {
+                "type": "auth",
+                "token": central_config.SESSION_TOKEN
+            }
+            await ws.send(json.dumps(auth_msg))
+            log.info("Conectado al servidor de señalización y autenticado. Esperando oferta de Unity...")
 
             async for mensaje in ws:
                 msg = json.loads(mensaje)
