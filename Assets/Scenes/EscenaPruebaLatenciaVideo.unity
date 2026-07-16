@@ -926,8 +926,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 75fca1050ba781343b12c4e4f17fc126, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ScriptWebRTC
-  ipRobot: 192.168.3.27
+  ipRobot: 192.168.3.28
   puertoWebRTC: 8080
+  sessionToken: TFG_Secret_Token_2026
   imagenVideo: {fileID: 778898615}
 --- !u!1 &1564492350
 GameObject:
@@ -975,7 +976,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::VideoLatencyMedidor
   scriptWebRTC: {fileID: 1469081130}
   textoTimestampUnity: {fileID: 279985974}
-  nombreArchivoCSV: CARGA_ALTA.csv
+  nombreArchivoCSV: CARGA_ALTA_CLUMSY.csv
   flushCada: 20
 --- !u!1 &1586038760
 GameObject:
