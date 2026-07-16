@@ -2,6 +2,7 @@ import asyncio
 from aiohttp import web, WSMsgType
 import json
 import logging
+import config
 
 #Configuramos logging para ver que esta pasando sin tener que pasar por debugger
 logging.basicConfig(
@@ -14,11 +15,8 @@ log = logging.getLogger(__name__)
 #---------------------------------------
 #CONFIGURACION
 #---------------------------------------
-HOST = "192.168.3.27"
-#Ponerlo todo a 0.0.0.0 significa que acepta conexiones desde cualquier IP de la red
-#Si solo queremos aceptar  conexiones locales(mismo PC), usamos "127.0.0.1"
-
-PORT = 8080
+HOST = config.SIGNALING_IP
+PORT = config.SIGNALING_PORT
 #Es un puerto arbitrario que debera coincidir con el configurado en Unity en (WebRTCManager.puertoSignaling)
 #Lo normal es usar el 8080 para WebRTC
 
@@ -56,12 +54,41 @@ async def handler(request):
     #la conexion WebSocket.
     #Sin este paso Unity no puede completar el ConnectAsync()
     
+    cliente_id = f"{request.remote}"
+    
+    # AUTENTICACIÓN -----------------------------------------------------
+    try:
+        # Esperamos el primer mensaje, que debe ser el token de autenticación
+        primer_msg = await ws.receive(timeout=5.0)
+    except asyncio.TimeoutError:
+        log.warning(f"Conexión rechazada por timeout de autenticación: {cliente_id}")
+        await ws.close(code=4001, message=b"auth_timeout")
+        return ws
+
+    if primer_msg.type != WSMsgType.TEXT:
+        log.warning(f"Conexión rechazada: el primer mensaje no es de tipo texto: {cliente_id}")
+        await ws.close(code=4001, message=b"unauthorized")
+        return ws
+
+    try:
+        auth_data = json.loads(primer_msg.data)
+    except Exception:
+        auth_data = {}
+
+    if auth_data.get("type") != "auth" or auth_data.get("token") != config.SESSION_TOKEN:
+        log.warning(f"Conexión rechazada: token de autenticación inválido o ausente de {cliente_id}")
+        await ws.close(code=4001, message=b"unauthorized")
+        return ws
+
+    # LIMITACIÓN DE CLIENTES CONECTADOS ----------------------------------
+    if len(clientes) >= 2:
+        log.warning(f"Conexión rechazada: sala llena (máximo 2 clientes): {cliente_id}")
+        await ws.close(code=4002, message=b"session_full")
+        return ws
+
     # REGISTRAMOS EL CLIENTE ----------------------------------------------
     clientes.add(ws)
-    cliente_id = f"{request.remote}"
-    #Request remote contiene la IP y el puerto del cliente que se conecto
-    
-    log.info(f"Cliente Conectado: {cliente_id} (total: {len(clientes)})")
+    log.info(f"Cliente Conectado y Autenticado: {cliente_id} (total: {len(clientes)})")
     
     # BUCLE DE RECEPCION DE MENSAJES --------------------------------------
     try:

@@ -68,13 +68,15 @@ public class PanelDespedida : MonoBehaviour
     {
         //Paso 1: Cierre del DataChannel
         ActualizarEstado("Closing data channel...");
+        if (scriptWebRTC != null)
+        {
+            scriptWebRTC.CerrarConexion();
+        }
         yield return new WaitForSeconds(tiempoCierre * 0.33f);
 
         //Paso 2: Cierre del PeerConnection
         ActualizarEstado("Closing P2P connection...");
         yield return new WaitForSeconds(tiempoCierre * 0.34f);
-
-        //ScriptWebRTC cierra todo en su OnDestroy()
 
         //Cierre completado
         ActualizarEstado("CONNECTION CLOSED CORRECTLY");

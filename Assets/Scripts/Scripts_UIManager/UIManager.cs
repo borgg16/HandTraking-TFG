@@ -89,6 +89,13 @@ public class UIManager : MonoBehaviour
         //Reseteamos la calibracion para empezar desde cero
         panelCalibracion.ResetearCalibracion();
         MostrarSolo(panelCalibracion.gameObject);
+        
+        // Reiniciamos la conexión de manera asíncrona para la nueva sesión
+        if (scriptWebRTC != null)
+        {
+            scriptWebRTC.ReiniciarConexion();
+        }
+        
         Debug.Log("UIManager -> PanelCalibracion");
     }
 

@@ -10,6 +10,7 @@ import cv2
 import numpy as np
 import serial
 import websockets
+import config
 from aiortc import (
     RTCConfiguration,
     RTCIceServer,
@@ -242,7 +243,13 @@ async def ejecutar_webrtc(args):
     pc = None
     try:
         async with websockets.connect(uri) as ws:
-            log.info("Conectado. Esperando oferta SDP de Unity ...")
+            # Enviar mensaje de autenticación inmediatamente
+            auth_msg = {
+                "type": "auth",
+                "token": config.SESSION_TOKEN
+            }
+            await ws.send(json.dumps(auth_msg))
+            log.info("Autenticado. Esperando oferta SDP de Unity ...")
             
             #---- Configuracion de la PeerConnection ----
             # Mismo servidor STUN que se usa en Unity en ScriptWebRTC.cs

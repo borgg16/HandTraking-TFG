@@ -16,6 +16,9 @@ public class ScriptWebRTC : MonoBehaviour
     [Tooltip("Dirección IP local del PC del Robot. Consultar con 'ipconfig' (Windows) o con 'ip a' (Linux)")] //Muestra texto de ayuda emergente en el inspector para explicar la función de esta variable
     public string ipRobot = "192.168.1.124"; //TODO: No sabemos la IP aún
     public int puertoWebRTC = 8080;
+    
+    [Tooltip("Token secreto de sesión para autenticación en señalización.")]
+    public string sessionToken = "TFG_Secret_Token_2026";
 
     [Header("Panel de Control")]
     [Tooltip("Imagen del video recibido")] //Muestra texto de ayuda emergente en el inspector para explicar la función de esta variable
@@ -103,6 +106,37 @@ public class ScriptWebRTC : MonoBehaviour
     }
 
     //----------------------------------------------
+    
+    public void CerrarConexion()
+    {
+        cancelToken?.Cancel();
+        if (websocket?.State == WebSocketState.Open)
+        {
+            _ = websocket.CloseAsync(
+                WebSocketCloseStatus.NormalClosure,
+                "Conexión Cerrada",
+                CancellationToken.None
+            );
+        }
+        dataChannel?.Close();
+        dataChannel = null;
+
+        peerConnection?.Close();
+        peerConnection = null;
+
+        conexionEstablecida = false;
+        Debug.Log("ScriptWebRTC: conexión cerrada explícitamente");
+    }
+
+    public async void ReiniciarConexion()
+    {
+        CerrarConexion();
+        cancelToken = new CancellationTokenSource();
+        Debug.Log("ScriptWebRTC: Reiniciando conexión...");
+        await ConectarSignaling();
+    }
+
+    //----------------------------------------------
     // SIGNALING (Primera fase de la conexión WebRTC)
     //----------------------------------------------
 
@@ -123,7 +157,18 @@ public class ScriptWebRTC : MonoBehaviour
             Debug.Log($"Intentando conectar a: {uri}");
             await websocket.ConnectAsync(uri, cancelToken.Token);
 
-            Debug.Log("WebSocket conectado al servidor de señalizacion");
+            Debug.Log("WebSocket conectado al servidor de señalizacion. Enviando mensaje de autenticación...");
+
+            // Enviar token de autenticación
+            var auth = new AuthMessage { type = "auth", token = sessionToken };
+            string authJson = JsonUtility.ToJson(auth);
+            var authBytes = Encoding.UTF8.GetBytes(authJson);
+            await websocket.SendAsync(
+                new ArraySegment<byte>(authBytes),
+                WebSocketMessageType.Text,
+                true,
+                cancelToken.Token
+            );
 
             //Arrancamos el bucle de recepcion en segundo plano
             // _ = descarta el Task porque no necesitamos esperarla
@@ -131,8 +176,6 @@ public class ScriptWebRTC : MonoBehaviour
             _ = BucleRecepcion();
 
             //Lanzamos la creación de la oferta WebRTC.
-            //StartCoroutine porque CrearOferta() es IEnumerator
-            //usa yield return con la API Unity WebRTC y debe estar en el hilo principal
             StartCoroutine(CrearOferta());
 
         }
@@ -599,6 +642,13 @@ public class ScriptWebRTC : MonoBehaviour
     {
         public string type;
         public double t;
+    }
+
+    [System.Serializable]
+    public class AuthMessage
+    {
+        public string type;
+        public string token;
     }
 
     [System.Serializable] private class MsgTipo { public string type; }

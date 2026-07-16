@@ -3,11 +3,12 @@ import json
 import logging
 import websockets
 from aiortc import RTCPeerConnection, RTCSessionDescription
+import config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [Mock Unity] %(message)s")
 log = logging.getLogger(__name__)
 
-URI_SIGNALING = "ws://172.16.188.21:8080"
+URI_SIGNALING = f"ws://{config.SIGNALING_IP}:{config.SIGNALING_PORT}"
 
 async def correr_mock_unity():
     # 1. Creamos la conexión WebRTC del lado de Unity
@@ -27,9 +28,14 @@ async def correr_mock_unity():
     def on_track(track):
         log.info(f"🎥 ¡ÉXITO! Recibiendo stream de vídeo del brazo robot ({track.kind})")
 
-    # 2. Conectamos al servidor de señalización
     async with websockets.connect(URI_SIGNALING) as ws:
-        log.info("Conectado al servidor de señalización. Iniciando handshake...")
+        # Enviar mensaje de autenticación
+        auth_msg = {
+            "type": "auth",
+            "token": config.SESSION_TOKEN
+        }
+        await ws.send(json.dumps(auth_msg))
+        log.info("Conectado y Autenticado al servidor de señalización. Iniciando handshake...")
 
         # 3. Crear Oferta SDP (Simulando lo que hace Unity al arrancar)
         # Añadimos un transceptor de vídeo en modo lectura para avisar al robot que queremos su cámara
