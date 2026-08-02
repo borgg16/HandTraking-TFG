@@ -46,7 +46,6 @@ public class PruebaWebRTCNube3DReceptor : MonoBehaviour
 
     private MeshFilter meshFilter;
     private MeshRenderer meshRenderer;
-    private DracoMeshLoader dracoLoader;
 
     void Awake()
     {
@@ -57,14 +56,12 @@ public class PruebaWebRTCNube3DReceptor : MonoBehaviour
         if (meshRenderer == null) meshRenderer = gameObject.AddComponent<MeshRenderer>();
         
         if (pointMaterial != null) meshRenderer.material = pointMaterial;
-        
-        dracoLoader = new DracoMeshLoader();
     }
 
     async void Start()
     {
         cancelToken = new CancellationTokenSource();
-        WebRTC.Initialize();
+        StartCoroutine(WebRTC.Update());
         
         await ConectarSignaling();
     }
@@ -199,7 +196,7 @@ public class PruebaWebRTCNube3DReceptor : MonoBehaviour
         var watch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            Mesh mesh = await dracoLoader.ConvertDracoMeshToUnity(dracoBytes);
+            Mesh mesh = await DracoDecoder.DecodeMesh(dracoBytes);
             if (mesh != null)
             {
                 long localNow = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -325,7 +322,6 @@ public class PruebaWebRTCNube3DReceptor : MonoBehaviour
         cancelToken?.Cancel();
         websocket?.Dispose();
         peerConnection?.Dispose();
-        WebRTC.Dispose();
     }
 
     [Serializable]
