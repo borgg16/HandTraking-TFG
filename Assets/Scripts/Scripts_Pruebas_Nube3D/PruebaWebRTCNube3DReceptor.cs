@@ -26,6 +26,9 @@ public class PruebaWebRTCNube3DReceptor : MonoBehaviour
     public float decodeTimeMs = 0f;
     public float networkTimeMs = 0f;
 
+    [Header("Metricas de Red (Mbps)")]
+    public float bandwidthMbps = 0f;
+
     private RTCPeerConnection peerConnection;
     private RTCDataChannel dataChannel;
     private ClientWebSocket websocket;
@@ -40,6 +43,10 @@ public class PruebaWebRTCNube3DReceptor : MonoBehaviour
     private int totalFramePoints = 0;
     private float lastFrameEncodeMs = 0f;
     private long lastFrameTimestamp = 0;
+
+    // Calculo de ancho de banda
+    private int bytesReceivedInLastSecond = 0;
+    private float bandwidthTimer = 0f;
 
     // Cola de mallas decodificadas para actualizar en el hilo principal
     private ConcurrentQueue<Mesh> decodedMeshQueue = new ConcurrentQueue<Mesh>();
@@ -136,6 +143,9 @@ public class PruebaWebRTCNube3DReceptor : MonoBehaviour
     private void OnDataChannelMessage(byte[] data)
     {
         if (data == null || data.Length < 26) return;
+
+        // Sumar bytes para calculo de ancho de banda
+        bytesReceivedInLastSecond += data.Length;
 
         // Parsear cabecera binaria (26 bytes)
         ushort magic = BitConverter.ToUInt16(data, 0);
@@ -256,6 +266,16 @@ public class PruebaWebRTCNube3DReceptor : MonoBehaviour
             }
             meshFilter.mesh = newMesh;
             totalPoints = newMesh.vertexCount;
+        }
+
+        // Calcular ancho de banda cada segundo
+        bandwidthTimer += Time.deltaTime;
+        if (bandwidthTimer >= 1.0f)
+        {
+            // Bitrate en Mbps = (Bytes * 8) / (1024 * 1024)
+            bandwidthMbps = (bytesReceivedInLastSecond * 8f) / (1024f * 1024f);
+            bytesReceivedInLastSecond = 0;
+            bandwidthTimer = 0f;
         }
     }
 

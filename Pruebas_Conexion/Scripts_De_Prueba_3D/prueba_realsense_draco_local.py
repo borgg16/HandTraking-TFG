@@ -135,7 +135,7 @@ class RealSenseCapturer:
         # Y = (v - cy) * Z / fy
         # Z = Z
         x_coords = (uu - intrinsics.ppx) * z_metros / intrinsics.fx
-        y_coords = (vv - intrinsics.ppy) * z_metros / intrinsics.fy
+        y_coords = -(vv - intrinsics.ppy) * z_metros / intrinsics.fy
         
         # Filtrar puntos y colores
         points = np.stack((x_coords[mask], y_coords[mask], z_metros[mask]), axis=-1).astype(np.float32)
