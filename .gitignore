@@ -80,4 +80,24 @@ crashlytics-build.properties
 /PC-ROBOT/venv_robot/Lib
 /PC-ROBOT/venv_robot
 
+!resultados/*.png
+!resultados/*.csv
+
 repomix-output.xml
+
+# Documentación local e informes de pruebas (no subir a GitHub)
+Pruebas_Conexion/Documentos_De_Analisis/EXPLICACION_LATENCIA.md
+Pruebas_Conexion/Documentos_De_Analisis/CAMBIOS_SEGURIDAD.md
+Pruebas_Conexion/Documentos_De_Analisis/EXPLICACION_CARPETAS.md
+Pruebas_Conexion/Documentos_De_Analisis/Guia_Pruebas_Latencia_Ethernet.md
+Pruebas_Conexion/Documentos_De_Analisis/Resultados_Y_Conclusiones_Pruebas.md
+Pruebas_Conexion/Resultados_Ethernet/
+Pruebas_Conexion/Documentos_De_Analisis/COMPARATIVA_REDES.md
+
+# Caché de compilación de Python
+__pycache__/
+*.pyc
+/iperf3.21_64
+Pruebas_Conexion/Documentos_De_Analisis/COMPARATIVA_REDES.md
+Pruebas_Conexion/Documentos_De_Analisis/BITACORA_CAMARA3D_DRACO.md
+Pruebas_Conexion/Documentos_De_Analisis/INFORME_DISENO_Y_COMPARATIVA_3D.md

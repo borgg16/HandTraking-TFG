@@ -4,11 +4,16 @@ import json
 import logging
 import time
 import argparse
+from datetime import datetime
 
 import cv2
 import numpy as np
 import serial
 import websockets
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Configuracion")))
+import config
 from aiortc import (
     RTCConfiguration,
     RTCIceServer,
@@ -172,13 +177,18 @@ class CameraVideoTrack(MediaStreamTrack):
         self._next_time = time.time() + 1.0 / CAM_FPS
         
         # Capturamos el frame de la camara del brazo
-        ret, frame_bgr = self.cap.read()
-        if self._pts % 30 == 0:   # log cada segundo aprox
-            log.info(f"CameraVideoTrack: frame {self._pts}, camara ok={ret}")
+        #ret, frame_bgr = self.cap.read()
+        #if self._pts % 30 == 0:   # log cada segundo aprox
+        #    log.info(f"CameraVideoTrack: frame {self._pts}, camara ok={ret}")
+        #ASI QUE ERA COMO ESTABA, BLOQUEABA EL EVENT LOOP
+        
+        loop = asyncio.get_event_loop()
+        ret, frame_bgr = await loop.run_in_executor(None, self.cap.read)
             
         if not ret:
             # Si la camara no responde, enviamos un frame negro para no romper el stream
             frame_bgr = np.zeros((CAM_HEIGHT, CAM_WIDTH, 3), dtype=np.uint8)
+            cv2.putText(frame_bgr, "CAMARA NO DISPONIBLE", (50, CAM_HEIGHT // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,0,255), 2)
             
         # OpenCV trabaja en BGR; av/WebRTC espera RGB
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
@@ -236,100 +246,118 @@ async def ejecutar_webrtc(args):
     pc = None
     try:
         async with websockets.connect(uri) as ws:
-            log.info("Conectado. Esperando oferta SDP de Unity ...")
+            # Enviar mensaje de autenticación inmediatamente
+            auth_msg = {
+                "type": "auth",
+                "token": config.SESSION_TOKEN
+            }
+            await ws.send(json.dumps(auth_msg))
+            log.info("Autenticado. Esperando oferta SDP de Unity ...")
             
             #---- Configuracion de la PeerConnection ----
             # Mismo servidor STUN que se usa en Unity en ScriptWebRTC.cs
-            config = RTCConfiguration(
+            rtc_config = RTCConfiguration(
                 iceServers=[RTCIceServer(urls=["stun:stun.l.google.com:19302"])]
             )
-            pc = RTCPeerConnection(configuration=config)
-            
             #---- DataChannel: Unity lo crea ("comandos"), Python lo recibe aquí ----
             # Es bidireccional: Unity envia coordenadas, python devuelve la posicion del brazo
+            # on_datachannel se define UNA sola vez y se re-registra en cada PC nueva
+            # (ver bloque "offer"): no depende de la PC concreta, solo de 'ser'/'channel'.
             data_channel = None
-            
-            @pc.on("datachannel")
+
             def on_datachannel(channel):
                 nonlocal data_channel
                 data_channel = channel
                 log.info(f"DataChannel '{channel.label}' establecido --- control activo.")
-                
+
                 @channel.on("message")
                 def on_message(msg):
-                    """
-                    Recibimos el vector normalizado de Unity y lo convertimos
-                    en un comando serial para el RoArm M2.
-
-                    Entrada (ScriptWebRTC.EnviarPosicion):
-                        {"x": 0.500, "y": 0.500, "z": 0.000, "g": 1.000}
-
-                    Salida al robot (comando T=1041 del firmware RoArm M2):
-                        {"T": 1041, "x": X_mm, "y": Y_mm, "z": Z_mm, "t": angulo_rad}
-                    """
                     nonlocal last_send, ser
-                    
-                    # Control de frecuencia: no saturamos el robot con mas de args.freq Hz
+
+                    # 1. Parsear JSON — si falla, descartar
+                    try:
+                        data = json.loads(msg)
+                    except (json.JSONDecodeError, ValueError) as e:
+                        log.warning(f"Mensaje malformado: '{msg}' — {e}")
+                        return
+
+                    # 2. Discriminar por tipo ANTES de procesar coordenadas
+                    tipo = data.get("type")
+
+                    if tipo == "ping":
+                        channel.send(json.dumps({
+                            "type": "pong",
+                            "seq":  data.get("seq", 0),
+                            "client_ts": data.get("client_ts"),
+                            "server_ts": int(time.time() * 1000)
+                        }))
+                        return
+
+                    if tipo == "csv_export":
+                        sesion   = data.get("sesion",
+                                    datetime.now().strftime("%Y%m%d_%H%M%S"))
+
+                        # Crear carpeta si no existe
+                        import os
+                        ruta_resultados = "Pruebas_Conexion/Resultados_Robot" if os.path.exists("Pruebas_Conexion") else "resultados"
+                        os.makedirs(ruta_resultados, exist_ok=True)
+
+                        filename = f"{ruta_resultados}/red_{sesion}.csv"
+                        with open(filename, "w", encoding="utf-8") as f:
+                            f.write(data.get("data", ""))
+                        log.info(f"[MetricsLogger] CSV guardado: {filename}")
+                        return
+
+                    # 3. Control de frecuencia
                     now = time.time()
                     if now - last_send < min_dt:
                         return
                     last_send = now
-                    
-                    # Parseamos el JSON de Unity
+
+                    # 4. Coordenadas de control (protocolo existente)
                     try:
-                        data = json.loads(msg)
                         norm_x  = float(data.get("x", 0.5))
                         norm_y  = float(data.get("y", 0.5))
                         norm_z  = float(data.get("z", 0.0))
                         gripper = float(data.get("g", 1.0))
-                    except (json.JSONDecodeError, ValueError) as e:
-                        log.warning(f"Mensaje malformado recibido: '{msg}' — {e}")
+                    except ValueError as e:
+                        log.warning(f"Valores malformados: {e}")
                         return
 
-                    # 1. Desnormalizamos: [0,1] -> centimetros
-                    x_cm, y_cm, z_cm, t = desnormalizar(norm_x, norm_y, norm_z, gripper)
-                    
-                    # 2. Aplicamos límites de seguridad del hardware
+                    # 5. Desnormalizar y enviar al robot
+                    x_cm, y_cm, z_cm, t = desnormalizar(
+                        norm_x, norm_y, norm_z, gripper)
                     x_safe = clamp(x_cm, X_MIN, X_MAX)
                     y_safe = clamp(y_cm, Y_MIN, Y_MAX)
                     z_safe = clamp(z_cm, Z_MIN, Z_MAX)
-                    
-                    # 4. Construimos el comando JSON para el firmware del RoArm M2.
-                    #    T=1041: movimiento cartesiano absoluto.
-                    #    Coordenadas en mm (el firmware espera mm, nosotros tenemos cm → × 10).
+
                     cmd = {
                         "T": 1041,
                         "x": int(x_safe * 10),
                         "y": int(y_safe * 10),
                         "z": int(z_safe * 10),
-                        "t": round(t*5, 1)
+                        "t": round(t * 5, 1)
                     }
                     enviar_comando_serial(ser, cmd)
 
                     if TRACE_ENABLED:
                         log.debug(
-                            f"norm({norm_x:.2f}, {norm_y:.2f}, {norm_z:.2f})"
+                            f"norm({norm_x:.2f},{norm_y:.2f},{norm_z:.2f})"
                             f" g={gripper:.2f} → {cmd}"
                         )
-                        
-                    # 5. Feedback a Unity: devolvemos la posición comandada normalizada
-                    #    para que PanelControl muestre el estado del brazo en tiempo real.
-                    #    Nota: es la posición comandada, no la posición real medida del brazo.
-                    #    Para posición real habría que consultar el firmware (ampliación futura).
+
+                    # 6. Feedback a Unity
                     if channel.readyState == "open":
-                        feedback = json.dumps({
+                        channel.send(json.dumps({
                             "x": round(norm_x, 3),
                             "y": round(norm_y, 3),
                             "z": round(norm_z, 3)
-                        })
-                        channel.send(feedback)
+                        }))
 
-            @pc.on("iceconnectionstatechange")
-            async def on_ice_change():
-                log.info(f"ICE estado: {pc.iceConnectionState}")
-                if pc.iceConnectionState in ("failed", "closed"):
-                    await pc.close()
-                    
+            # El handler de iceconnectionstatechange se registra DENTRO del bloque
+            # "offer", capturando por valor la PC concreta a la que pertenece, para
+            # que una PC vieja al fallar no cierre por error la PC de una reconexion.
+
             # Lista de candidatos ICE que llegan antes de recibir la oferta.
             # Los guardamos y los añadimos en orden correcto una vez que
             # setRemoteDescription() haya sido llamado.
@@ -348,11 +376,34 @@ async def ejecutar_webrtc(args):
                 #---- Oferta SDP de Unity ----
                 if tipo == "offer":
                     log.info("Oferta SDP recibida de Unity. Procesando...")
-                    
+
+                    # --- Reconexion de las gafas: cada oferta = sesion nueva ---
+                    # Una RTCPeerConnection de aiortc NO se puede reutilizar una vez
+                    # cerrada: setRemoteDescription lanzaria InvalidStateError
+                    # ("Cannot handle offer in signaling state closed") y Unity veria
+                    # fallar su SetRemoteDescription. Por eso, si habia una PC de una
+                    # sesion previa, la cerramos y recreamos la PC y el track de video
+                    # (un track ya detenido no vuelve a emitir frames).
+                    if pc is not None:
+                        log.info("Nueva oferta: recreando PeerConnection y track de video")
+                        await pc.close()
+                        video_track.detener()
+                        video_track = CameraVideoTrack(args.camera)
+
+                    pc = RTCPeerConnection(configuration=rtc_config)
+                    pc.on("datachannel", on_datachannel)
+
+                    @pc.on("iceconnectionstatechange")
+                    async def on_ice_change(_pc=pc):
+                        # _pc=pc fija POR VALOR la PC de esta sesion.
+                        log.info(f"ICE estado: {_pc.iceConnectionState}")
+                        if _pc.iceConnectionState == "failed":
+                            await _pc.close()
+
                     # Establecemos la descripcion remota (la oferta que nos manda Unity)
                     desc = RTCSessionDescription(sdp=msg["sdp"], type="offer")
                     await pc.setRemoteDescription(desc)
-                    
+
                     pc.addTrack(video_track)
                     log.info("Video track añadido a la PeerConnection")
                     
@@ -400,10 +451,11 @@ async def ejecutar_webrtc(args):
                         ice.sdpMid = msg.get("sdpMid", "0")
                         ice.sdpMLineIndex = msg.get("sdpMLineIndex", 0)
                         
-                        if pc.remoteDescription is not None:
+                        if pc is not None and pc.remoteDescription is not None:
                             await pc.addIceCandidate(ice)
                         else:
-                            # La oferta aun no ha llegado, guardamos para despues
+                            # La oferta aun no ha llegado (pc todavia None), guardamos
+                            # para añadirlos justo despues de setRemoteDescription.
                             candidatos_pendientes.append(ice)
                             
                     except Exception as e:

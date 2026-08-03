@@ -44,6 +44,11 @@ public class PanelControl : MonoBehaviour
     [Header("Esfera de Referencia")]
     public EsferaReferencia esferaReferencia;
 
+    [Header("Frecuencia de envío")]
+    [Tooltip("Frecuencia máxima de envío de comandos al robot en Hz")]
+    public float frecuenciaEnvioHz = 50f;
+    private float ultimoEnvio = 0f;
+
     //EVENTOS PARA LOS CAMBIOS DE PANELES
     public event Action OnVolverCalibrar;
     public event Action OnFinalizar;
@@ -91,16 +96,16 @@ public class PanelControl : MonoBehaviour
         if (botonAlPulsarFinalizar != null) botonAlPulsarFinalizar.onClick.AddListener(AlPulsarFinalizar);
 
         //Textos Iniciales
-        if (textoCoordsMano != null) textoCoordsMano.text = "X: --\nY: --\nZ: --\nPinza: --";
+        if (textoCoordsMano != null) textoCoordsMano.text = "X: --\nY: --\nZ: --\nPinch: --";
         if (textoCoordsRobot != null) textoCoordsRobot.text = "X: --\nY: --\nZ: --";
         if (textoPellizcoMano != null)
         {
-            textoPellizcoMano.text = "*Sin pellizco";
+            textoPellizcoMano.text = "*Without pinching";
             textoPellizcoMano.color = colorReposo;
         }
         if (textoPellizcoRobot != null)
         {
-            textoPellizcoRobot.text = "*Robot en reposo";
+            textoPellizcoRobot.text = "*Robot at rest";
             textoPellizcoRobot.color = colorReposo;
         }
 
@@ -183,7 +188,7 @@ public class PanelControl : MonoBehaviour
 
         if (textoPellizcoMano != null)
         {
-            textoPellizcoMano.text = pellizcoActivo ? "*PELLIZCO ACTIVO" : "*Sin pellizco";
+            textoPellizcoMano.text = pellizcoActivo ? "*ACTIVE PINCH" : "*Without pinching";
             textoPellizcoMano.color = pellizcoActivo ? colorPellizco : colorReposo;
         }
 
@@ -193,11 +198,16 @@ public class PanelControl : MonoBehaviour
             textoCoordsMano.text = $"X: {normalizada.x:F2}\n" +
                                     $"Y: {normalizada.y:F2}\n" +
                                     $"Z: {normalizada.z:F2}\n" +
-                                    $"Pinza: {gripper:F2}";
+                                    $"Pinch: {gripper:F2}";
         }
 
         //----- Enviar al robot --------------------------------------
-        scriptWebRTC.EnviarPosicion(normalizada, gripper);
+        // Limitamos la frecuencia de envío usando Time.time para evitar sobrecargar la red
+        if (Time.time - ultimoEnvio >= 1f / frecuenciaEnvioHz)
+        {
+            ultimoEnvio = Time.time;
+            scriptWebRTC.EnviarPosicion(normalizada, gripper);
+        }
     }
 
     //----------------------------------------------------------------
@@ -216,7 +226,7 @@ public class PanelControl : MonoBehaviour
 
         if (textoPellizcoRobot != null)
         {
-            textoPellizcoRobot.text = robotMoviendo ? "ROBOT EN MOVIMIENTO" : "Robot en reposo";
+            textoPellizcoRobot.text = robotMoviendo ? "ROBOT IN MOTION" : "Robot at rest";
             textoPellizcoRobot.color = robotMoviendo ? colorRobot : colorReposo;
         }
 
@@ -248,16 +258,16 @@ public class PanelControl : MonoBehaviour
     void LimpiarTextos()
     {
         //Reseteamos textos
-        if (textoCoordsMano != null) textoCoordsMano.text = "Mano: (calibración en curso...)";
-        if (textoCoordsRobot != null) textoCoordsRobot.text = "Brazo: (en espera...)";
+        if (textoCoordsMano != null) textoCoordsMano.text = "Hand: (calibration in progress...)";
+        if (textoCoordsRobot != null) textoCoordsRobot.text = "Robot Arm: (waiting...)";
         if (textoPellizcoMano != null)
         {
-            textoPellizcoMano.text = "*En Pausa";
+            textoPellizcoMano.text = "*On Hold";
             textoPellizcoMano.color = colorReposo;
         }
         if (textoPellizcoRobot != null)
         {
-            textoPellizcoRobot.text = "*En Pausa";
+            textoPellizcoRobot.text = "*On Hold";
             textoPellizcoRobot.color = colorReposo;
         }
     }
