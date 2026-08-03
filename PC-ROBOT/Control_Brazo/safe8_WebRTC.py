@@ -256,16 +256,15 @@ async def ejecutar_webrtc(args):
             
             #---- Configuracion de la PeerConnection ----
             # Mismo servidor STUN que se usa en Unity en ScriptWebRTC.cs
-            config = RTCConfiguration(
+            rtc_config = RTCConfiguration(
                 iceServers=[RTCIceServer(urls=["stun:stun.l.google.com:19302"])]
             )
-            pc = RTCPeerConnection(configuration=config)
-            
             #---- DataChannel: Unity lo crea ("comandos"), Python lo recibe aquí ----
             # Es bidireccional: Unity envia coordenadas, python devuelve la posicion del brazo
+            # on_datachannel se define UNA sola vez y se re-registra en cada PC nueva
+            # (ver bloque "offer"): no depende de la PC concreta, solo de 'ser'/'channel'.
             data_channel = None
-            
-            @pc.on("datachannel")
+
             def on_datachannel(channel):
                 nonlocal data_channel
                 data_channel = channel
@@ -355,12 +354,10 @@ async def ejecutar_webrtc(args):
                             "z": round(norm_z, 3)
                         }))
 
-            @pc.on("iceconnectionstatechange")
-            async def on_ice_change():
-                log.info(f"ICE estado: {pc.iceConnectionState}")
-                if pc.iceConnectionState in ("failed", "closed"):
-                    await pc.close()
-                    
+            # El handler de iceconnectionstatechange se registra DENTRO del bloque
+            # "offer", capturando por valor la PC concreta a la que pertenece, para
+            # que una PC vieja al fallar no cierre por error la PC de una reconexion.
+
             # Lista de candidatos ICE que llegan antes de recibir la oferta.
             # Los guardamos y los añadimos en orden correcto una vez que
             # setRemoteDescription() haya sido llamado.
@@ -379,11 +376,34 @@ async def ejecutar_webrtc(args):
                 #---- Oferta SDP de Unity ----
                 if tipo == "offer":
                     log.info("Oferta SDP recibida de Unity. Procesando...")
-                    
+
+                    # --- Reconexion de las gafas: cada oferta = sesion nueva ---
+                    # Una RTCPeerConnection de aiortc NO se puede reutilizar una vez
+                    # cerrada: setRemoteDescription lanzaria InvalidStateError
+                    # ("Cannot handle offer in signaling state closed") y Unity veria
+                    # fallar su SetRemoteDescription. Por eso, si habia una PC de una
+                    # sesion previa, la cerramos y recreamos la PC y el track de video
+                    # (un track ya detenido no vuelve a emitir frames).
+                    if pc is not None:
+                        log.info("Nueva oferta: recreando PeerConnection y track de video")
+                        await pc.close()
+                        video_track.detener()
+                        video_track = CameraVideoTrack(args.camera)
+
+                    pc = RTCPeerConnection(configuration=rtc_config)
+                    pc.on("datachannel", on_datachannel)
+
+                    @pc.on("iceconnectionstatechange")
+                    async def on_ice_change(_pc=pc):
+                        # _pc=pc fija POR VALOR la PC de esta sesion.
+                        log.info(f"ICE estado: {_pc.iceConnectionState}")
+                        if _pc.iceConnectionState == "failed":
+                            await _pc.close()
+
                     # Establecemos la descripcion remota (la oferta que nos manda Unity)
                     desc = RTCSessionDescription(sdp=msg["sdp"], type="offer")
                     await pc.setRemoteDescription(desc)
-                    
+
                     pc.addTrack(video_track)
                     log.info("Video track añadido a la PeerConnection")
                     
@@ -431,10 +451,11 @@ async def ejecutar_webrtc(args):
                         ice.sdpMid = msg.get("sdpMid", "0")
                         ice.sdpMLineIndex = msg.get("sdpMLineIndex", 0)
                         
-                        if pc.remoteDescription is not None:
+                        if pc is not None and pc.remoteDescription is not None:
                             await pc.addIceCandidate(ice)
                         else:
-                            # La oferta aun no ha llegado, guardamos para despues
+                            # La oferta aun no ha llegado (pc todavia None), guardamos
+                            # para añadirlos justo despues de setRemoteDescription.
                             candidatos_pendientes.append(ice)
                             
                     except Exception as e:

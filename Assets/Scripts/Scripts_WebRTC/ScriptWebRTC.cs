@@ -519,6 +519,24 @@ public class ScriptWebRTC : MonoBehaviour
 
     IEnumerator AplicarAnswer(string sdp)
     {
+        // GUARDA DE ESTADO: solo aplicamos el answer si estamos en HaveLocalOffer.
+        // Si llega un answer duplicado o rezagado (p. ej. de una sesión anterior tras
+        // reconectar), la PeerConnection ya estaría en Stable y SetRemoteDescription
+        // fallaría con "Called in wrong state: stable", rompiendo la negociación.
+        // En ese caso lo ignoramos en vez de dejar que reviente.
+        if (peerConnection == null)
+        {
+            Debug.LogWarning("Answer recibido pero no hay PeerConnection activa. Ignorado.");
+            yield break;
+        }
+        if (peerConnection.SignalingState != RTCSignalingState.HaveLocalOffer)
+        {
+            Debug.LogWarning(
+                $"Answer ignorado: estado de señalización = {peerConnection.SignalingState} " +
+                "(se esperaba HaveLocalOffer). Probable answer duplicado o de una sesión previa.");
+            yield break;
+        }
+
         var desc = new RTCSessionDescription
         {
             type = RTCSdpType.Answer,
