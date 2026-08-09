@@ -106,8 +106,20 @@ public class EsferaReferencia : MonoBehaviour
         lr.receiveShadows  = false;
 
         // Material Unlit para que no dependa de la iluminación
-        lr.material = new Material(Shader.Find("Universal Render Pipeline/Unlit"));
-        lr.material.SetFloat("_Surface", 1f); // Transparent
+        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
+        if (shader == null) shader = Shader.Find("Sprites/Default");
+        lr.material = new Material(shader);
+        if (lr.material.HasProperty("_Surface"))
+        {
+            lr.material.SetFloat("_Surface", 1f); // Transparent
+            lr.material.SetFloat("_Blend", 0f);   // Alpha blend
+            lr.material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            lr.material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            lr.material.SetInt("_ZWrite", 0);
+            lr.material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            lr.material.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            lr.material.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        }
 
         return lr;
     }
@@ -150,6 +162,13 @@ public class EsferaReferencia : MonoBehaviour
         if (lr == null) return;
         lr.startColor = c;
         lr.endColor   = c;
+        if (lr.material != null)
+        {
+            if (lr.material.HasProperty("_BaseColor"))
+                lr.material.SetColor("_BaseColor", c);
+            if (lr.material.HasProperty("_Color"))
+                lr.material.SetColor("_Color", c);
+        }
     }
 
 }
