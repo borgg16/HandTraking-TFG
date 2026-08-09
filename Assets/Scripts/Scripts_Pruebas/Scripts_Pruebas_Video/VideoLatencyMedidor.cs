@@ -64,7 +64,7 @@ public class VideoLatencyMedidor : MonoBehaviour
         try
         {
             _csv = new StreamWriter(ruta, false); // false = sobrescribir el archivo si ya existe
-            _csv.WriteLine("TiempoDesdeInicioSesion,TimestampVideo,LatenciaVideo");
+            _csv.WriteLine("TiempoDesdeInicioSesion,LatenciaVideo,TimestampCaptura,TimestampRecibido");
             _csv.Flush();
         }
         catch (Exception e)
