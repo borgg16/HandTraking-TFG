@@ -14,7 +14,7 @@ public class ScriptWebRTC : MonoBehaviour
 {
     [Header("Configuración de Red")]
     [Tooltip("Dirección IP local del PC del Robot. Consultar con 'ipconfig' (Windows) o con 'ip a' (Linux)")] //Muestra texto de ayuda emergente en el inspector para explicar la función de esta variable
-    public string ipRobot = "192.168.1.124"; //TODO: No sabemos la IP aún
+    public string ipRobot = "192.168.1.124"; // Valor de ejemplo: actualizar por red (ver tooltip: 'ipconfig' en Windows / 'ip a' en Linux)
     public int puertoWebRTC = 8080;
     
     [Tooltip("Token secreto de sesión para autenticación en señalización.")]
