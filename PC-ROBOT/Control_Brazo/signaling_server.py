@@ -45,7 +45,13 @@ async def handler(request):
         5. Al desconectarse lo eliminamos del set    
     """
     # PREPARAR EL WEBSOCKET ----------------------------------------------
-    ws = web.WebSocketResponse()
+    # heartbeat=15 (problema 5.7): aiohttp envia un ping cada 15s y cierra la
+    # conexion si el cliente no responde. Sin esto, un cliente que muere de
+    # forma abrupta dejaba su ws "zombi" dentro de clientes, ocupando una de
+    # las 2 plazas y bloqueando su propia reconexion automatica con
+    # "session_full". El finally de abajo (clientes.discard) ya hace la
+    # limpieza; el heartbeat solo hace que se detecte pronto al peer muerto.
+    ws = web.WebSocketResponse(heartbeat=15)
     #web.WebSocketResponse() es el objeto WebSocket de aiohttp
     #cuando Unity hace ConnectAsync(), llega aqui como una peticion HTTP
     #con cabecera "Upgrade: websocket". aiohttp la convierte automaticamente
