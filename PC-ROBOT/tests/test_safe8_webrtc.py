@@ -12,7 +12,61 @@ dice "norm_x=0 -> izquierda -> Y negativa / norm_x=1 -> derecha -> Y positiva",
 pero la formula activa produce lo contrario. test_eje_x_signo verifica el
 comportamiento REAL del codigo (test de caracterizacion), no el documentado.
 """
-import pytest
+import math
+
+try:
+    import pytest
+except ImportError:
+    class Approx:
+        def __init__(self, val, abs_tol=1e-5):
+            self.val = val
+            self.abs_tol = abs_tol
+        def __eq__(self, other):
+            return math.isclose(self.val, float(other), abs_tol=self.abs_tol)
+        def __repr__(self):
+            return f"approx({self.val})"
+
+    class Parametrize:
+        def __call__(self, names, values):
+            def decorator(func):
+                def wrapper(instance, *args, **kwargs):
+                    arg_names = [n.strip() for n in names.split(",")]
+                    for row in values:
+                        row_dict = dict(zip(arg_names, row))
+                        func(instance, **row_dict)
+                return wrapper
+            return decorator
+
+    class PytestFallback:
+        def approx(self, val, rel=None, abs=1e-5):
+            return Approx(val, abs_tol=abs if abs is not None else 1e-5)
+        class mark:
+            parametrize = Parametrize()
+
+    pytest = PytestFallback()
+
+import os
+import sys
+from unittest.mock import MagicMock
+
+class DummyMediaStreamTrack:
+    kind = "video"
+
+for mod in ["serial", "cv2", "aiortc", "aiortc.mediastreams", "aiortc.contrib", "aiortc.contrib.media", "aiortc.sdp", "websockets", "websockets.exceptions", "av"]:
+    if mod not in sys.modules:
+        try:
+            __import__(mod)
+        except ImportError:
+            m = MagicMock()
+            if mod == "aiortc.mediastreams":
+                m.MediaStreamTrack = DummyMediaStreamTrack
+            sys.modules[mod] = m
+
+_control_brazo_dir = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "Control_Brazo")
+)
+if _control_brazo_dir not in sys.path:
+    sys.path.insert(0, _control_brazo_dir)
 
 from safe8_WebRTC import (
     clamp,
@@ -24,8 +78,10 @@ from safe8_WebRTC import (
 )
 
 
+import unittest
+
 # ------------------------------------------------------------------ clamp ---
-class TestClamp:
+class TestClamp(unittest.TestCase):
     """clamp(v, vmin, vmax) = max(vmin, min(vmax, v))"""
 
     @pytest.mark.parametrize("v, vmin, vmax, esperado", [
@@ -44,11 +100,11 @@ class TestClamp:
         (1.1, 0.0, 1.0, 1.0),
     ])
     def test_rangos(self, v, vmin, vmax, esperado):
-        assert clamp(v, vmin, vmax) == esperado
+        self.assertEqual(clamp(v, vmin, vmax), esperado)
 
 
 # ----------------------------------------------------------- desnormalizar ---
-class TestDesnormalizar:
+class TestDesnormalizar(unittest.TestCase):
     """
     desnormalizar(norm_x, norm_y, norm_z, gripper)
         -> (x_robot, y_robot, z_robot, t)
