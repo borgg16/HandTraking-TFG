@@ -66,7 +66,7 @@ public class PanelControl : MonoBehaviour
     //INICIALIZACION - LLAMADO por panelCalibracion.CerrarPanel()
     //--------------------------------------------------
 
-    public void Iniciar(DatosCalibracion datos, ScriptWebRTC rtc)
+    public virtual void Iniciar(DatosCalibracion datos, ScriptWebRTC rtc)
     {
         manoCalibrada = datos.manoCalibrada;
         thumbTip = datos.thumbTip;
@@ -120,7 +120,7 @@ public class PanelControl : MonoBehaviour
     //------------------------------------------------------------------
     //UPDATE
     //------------------------------------------------------------------
-    void Update()
+    protected virtual void Update()
     {
         if (!controlActivo) return;
         if (!manoCalibrada.neutroGuardado || !manoCalibrada.guardado || mano == null) return;
@@ -208,18 +208,28 @@ public class PanelControl : MonoBehaviour
             ultimoEnvio = Time.time;
             scriptWebRTC.EnviarPosicion(normalizada, gripper);
         }
+
+        //----- Gancho para paneles especializados -------------------
+        //PanelControlVolumetrico lo usa para mover las barras de la mano
+        ActualizarVisualesMano(normalizada, gripper, pellizcoActivo);
     }
+
+    //----------------------------------------------------------------
+    //GANCHO OPCIONAL - lo sobrescriben las variantes del panel (no hace nada aquí)
+    //----------------------------------------------------------------
+    protected virtual void ActualizarVisualesMano(Vector3 normalizada, float gripper, bool pellizcoActivo) { }
 
     //----------------------------------------------------------------
     //COORDENADAS DEL ROBOT - evento desde ScriptWebRTC
     //----------------------------------------------------------------
-    void ActualizarCoordsRobot(Vector3 coords)
+    protected virtual void ActualizarCoordsRobot(Vector3 coords)
     {
-        if (textoCoordsRobot == null) return;
-
-        textoCoordsRobot.text = $"X: {coords.x:F2}\n" +
-                                $"Y: {coords.y:F2}\n" +
-                                $"Z: {coords.z:F2}";
+        if (textoCoordsRobot != null)
+        {
+            textoCoordsRobot.text = $"X: {coords.x:F2}\n" +
+                                    $"Y: {coords.y:F2}\n" +
+                                    $"Z: {coords.z:F2}";
+        }
 
         //Detectamos movimiento del robot comparando con la posicion anterior
         bool robotMoviendo = Vector3.Distance(coords, ultimaPosRobot) > 0.01f;
@@ -255,7 +265,7 @@ public class PanelControl : MonoBehaviour
         Debug.Log("PanelControl: notificando UIManager → finalizar conexión");
     }
 
-    void LimpiarTextos()
+    protected virtual void LimpiarTextos()
     {
         //Reseteamos textos
         if (textoCoordsMano != null) textoCoordsMano.text = "Hand: (calibration in progress...)";
@@ -277,7 +287,7 @@ public class PanelControl : MonoBehaviour
     //LIMPIEZA
     //--------------------------------------------------------------------
 
-    void OnDestroy()
+    protected virtual void OnDestroy()
     {
         if (scriptWebRTC != null)
         {

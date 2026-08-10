@@ -23,6 +23,15 @@ public class ScriptWebRTC : MonoBehaviour
     [Header("Panel de Control")]
     [Tooltip("Imagen del video recibido")] //Muestra texto de ayuda emergente en el inspector para explicar la función de esta variable
     public RawImage imagenVideo; //Es raw y no Image porque vamos a asignar una textura de video que no es un sprite.
+
+    [Header("Nube de Puntos 3D — CamaraDraco3D")]
+    [Tooltip("Abre un DataChannel adicional para recibir la nube de puntos comprimida con Draco. " +
+             "Solo se activa en la escena de teleoperación volumétrica.")]
+    public bool habilitarNube3D = false;
+
+    [Tooltip("Etiqueta del DataChannel de la nube de puntos (debe coincidir con NUBE_CHANNEL_LABEL en config.py)")]
+    public string canalNube3D = "nube3d";
+
                                  //----------------------------------------------------------------------
                                  // VARIABLES PRIVADAS para la conexión WebRTC
     private RTCPeerConnection peerConnection;
@@ -35,6 +44,11 @@ public class ScriptWebRTC : MonoBehaviour
     //Por aqui enviamos las coordenadas al robot en formato JSON
     //y recibimos las coordenadas del brazo robot de vuelta.
     //Es similar a un socket TCP pero integrado en WebRTC sin servidor.
+
+    private RTCDataChannel dataChannelNube;
+    //Canal binario dedicado a la nube de puntos ("nube3d").
+    //Va separado de "comandos" para que las rafagas de chunks de 16 KiB no se mezclen
+    //con los mensajes de control del brazo (ver PLANIFICACION_CAMARA3D_DRACO.md, apartado 5).
 
     private ClientWebSocket websocket;
     //Conexion al servidor de signaling de Python
@@ -90,6 +104,13 @@ public class ScriptWebRTC : MonoBehaviour
 
     public event Action OnDataChannelAbierto;
 
+    //EVENTOS DE LA NUBE DE PUNTOS — los consume NubeReceiver
+    public event Action<byte[]> OnChunkNube3D; //Cada chunk binario tal cual llega (cabecera 26 B + payload Draco)
+    public event Action OnCanalNube3DAbierto;
+
+    public bool CanalNube3DAbierto =>
+        dataChannelNube != null && dataChannelNube.ReadyState == RTCDataChannelState.Open;
+
     //----------------------------------------------
     // INICIALIZACIÓN
     //----------------------------------------------
@@ -120,6 +141,9 @@ public class ScriptWebRTC : MonoBehaviour
         }
         dataChannel?.Close();
         dataChannel = null;
+
+        dataChannelNube?.Close();
+        dataChannelNube = null;
 
         peerConnection?.Close();
         peerConnection = null;
@@ -409,6 +433,27 @@ public class ScriptWebRTC : MonoBehaviour
                 Debug.LogWarning($"Mensaje no reconocido: {json}");
         };
 
+        //----- DataChannel para recibir la nube de puntos 3D (opcional) --------------------------------------------------------------
+        if (habilitarNube3D)
+        {
+            //ordered = true en esta primera fase por simplicidad de reensamblado.
+            //El objetivo final es unordered + maxRetransmits = 0 para no pagar retransmisiones.
+            var opcionesNube = new RTCDataChannelInit { ordered = true };
+
+            dataChannelNube = peerConnection.CreateDataChannel(canalNube3D, opcionesNube);
+
+            dataChannelNube.OnOpen += () =>
+            {
+                OnCanalNube3DAbierto?.Invoke();
+                Debug.Log($"DataChannel '{canalNube3D}' abierto -- preparado para recibir la nube de puntos");
+            };
+
+            dataChannelNube.OnClose += () => Debug.Log($"DataChannel '{canalNube3D}' cerrado");
+
+            //Reenviamos el chunk crudo: el reensamblado y la decodificación Draco son cosa de NubeReceiver
+            dataChannelNube.OnMessage += bytes => OnChunkNube3D?.Invoke(bytes);
+        }
+
         //----- Negociación de la conexión (SDP) -------------------------------------------------------------------------------------
         /*
             SDP (Session Description Protocol) es un documento de texto
@@ -610,6 +655,7 @@ public class ScriptWebRTC : MonoBehaviour
         }
 
         dataChannel?.Close();
+        dataChannelNube?.Close();
         peerConnection?.Close();
     }
 

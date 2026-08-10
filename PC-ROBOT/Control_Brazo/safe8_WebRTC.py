@@ -14,6 +14,12 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Configuracion")))
 import config
+
+# Pipeline de nube de puntos 3D (RealSense + Draco). Los módulos degradan solos
+# si faltan pyrealsense2 o DracoPy, así que se pueden importar siempre.
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Camara3D")))
+from realsense_manager import GestorRealSense
+from emisor_nube import EmisorNube3D
 from aiortc import (
     RTCConfiguration,
     RTCIceServer,
@@ -87,6 +93,25 @@ def desnormalizar(norm_x, norm_y, norm_z, gripper):
     
 
 #------ COMUNICACION SERIAL --------------------
+class SerialSimulado:
+    """
+    Puerto serie de mentira para probar el stack WebRTC (vídeo 2D y nube 3D)
+    sin el brazo conectado. Expone la misma interfaz que serial.Serial, así que
+    el resto del código no se entera de que no hay hardware.
+    Se activa con --sin-brazo.
+    """
+    is_open = True
+
+    def write(self, data):
+        pass
+
+    def readline(self):
+        return b'{"status":"mock_ok"}\n'
+
+    def close(self):
+        self.is_open = False
+
+
 def crear_conexion_serial(puerto, baudrate=115200):
     """
     Abre la conexion con el robot por puerto serial
@@ -149,13 +174,19 @@ class CameraVideoTrack(MediaStreamTrack):
     def __init__(self, cam_index=0):
         super().__init__()
         self.cap = cv2.VideoCapture(cam_index)
+
+        # Sin cámara seguimos emitiendo frames negros: Unity negocia el transceptor
+        # de vídeo igualmente y, en la escena volumétrica, quien manda es la nube 3D.
         if not self.cap.isOpened():
-            raise RuntimeError(f"No se pudo abrir la camara con indice {cam_index}")
-        
-        # Configuramos resolucion y FPS en la camara
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_WIDTH)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_HEIGHT)
-        self.cap.set(cv2.CAP_PROP_FPS, CAM_FPS)
+            log.warning(f"No se pudo abrir la camara con indice {cam_index} — "
+                        f"se emitiran frames negros")
+            self.cap.release()
+            self.cap = None
+        else:
+            # Configuramos resolucion y FPS en la camara
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_WIDTH)
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_HEIGHT)
+            self.cap.set(cv2.CAP_PROP_FPS, CAM_FPS)
 
         self._pts = 0
         self._time_base = fractions.Fraction(1, CAM_FPS)
@@ -182,9 +213,12 @@ class CameraVideoTrack(MediaStreamTrack):
         #    log.info(f"CameraVideoTrack: frame {self._pts}, camara ok={ret}")
         #ASI QUE ERA COMO ESTABA, BLOQUEABA EL EVENT LOOP
         
-        loop = asyncio.get_event_loop()
-        ret, frame_bgr = await loop.run_in_executor(None, self.cap.read)
-            
+        if self.cap is not None:
+            loop = asyncio.get_event_loop()
+            ret, frame_bgr = await loop.run_in_executor(None, self.cap.read)
+        else:
+            ret, frame_bgr = False, None
+
         if not ret:
             # Si la camara no responde, enviamos un frame negro para no romper el stream
             frame_bgr = np.zeros((CAM_HEIGHT, CAM_WIDTH, 3), dtype=np.uint8)
@@ -203,7 +237,7 @@ class CameraVideoTrack(MediaStreamTrack):
     
     def detener(self):
         """Libera la camara al cerrar la sesion"""
-        if self.cap.isOpened():
+        if self.cap is not None and self.cap.isOpened():
             self.cap.release()
         super().stop()
 
@@ -223,13 +257,24 @@ async def ejecutar_webrtc(args):
     """
     
     # Conexion serial al robot----------------------
-    ser = crear_conexion_serial(args.puerto, args.baudrate)
-    if ser is None:
-        log.error("Imposible continuar sin conexión serial al robot")
-        return
+    if args.sin_brazo:
+        log.warning("MODO SIN BRAZO: los comandos no saldrán por el puerto serie")
+        ser = SerialSimulado()
+    else:
+        ser = crear_conexion_serial(args.puerto, args.baudrate)
+        if ser is None:
+            log.error("Imposible continuar sin conexión serial al robot "
+                      "(usa --sin-brazo para probar solo la parte de red)")
+            return
     
     min_dt = 1.0 / args.freq if args.freq > 0 else 0.0
     last_send = 0.0
+
+    #---- Estado del pipeline de nube de puntos 3D ----
+    nube_habilitada = args.nube3d
+    gestor_nube = None
+    emisor_nube = None
+    tarea_nube = None
     
     #---- Track de vídeo: cámara del brazo -> Unity ----
     # Lo creamos fuera del bloque websockets para poder llamar a detener() en el finally
@@ -256,18 +301,66 @@ async def ejecutar_webrtc(args):
             
             #---- Configuracion de la PeerConnection ----
             # Mismo servidor STUN que se usa en Unity en ScriptWebRTC.cs
-            config = RTCConfiguration(
+            # OJO: la variable NO puede llamarse 'config' porque sombrearia al modulo
+            # de configuracion importado arriba (que se usa unas lineas mas abajo).
+            rtc_config = RTCConfiguration(
                 iceServers=[RTCIceServer(urls=["stun:stun.l.google.com:19302"])]
             )
-            pc = RTCPeerConnection(configuration=config)
-            
+            pc = RTCPeerConnection(configuration=rtc_config)
+
             #---- DataChannel: Unity lo crea ("comandos"), Python lo recibe aquí ----
             # Es bidireccional: Unity envia coordenadas, python devuelve la posicion del brazo
             data_channel = None
-            
+
+            async def arrancar_nube3d(channel):
+                """
+                Abre la RealSense y lanza el bucle de emision de la nube.
+                El arranque de la camara es bloqueante (1-2 s), asi que va al executor
+                para no congelar la señalizacion ni el canal de control.
+                """
+                nonlocal gestor_nube, emisor_nube
+
+                loop = asyncio.get_event_loop()
+                gestor_nube = GestorRealSense(
+                    resolucion=config.REALSENSE_RESOLUCION,
+                    fps=config.REALSENSE_FPS,
+                    rango_z=config.REALSENSE_RANGO_Z,
+                    stride=config.REALSENSE_STRIDE,
+                    max_puntos=args.nube_max_puntos,
+                    permitir_simulacion=config.REALSENSE_SIMULAR_SIN_CAMARA,
+                )
+
+                hay_camara = await loop.run_in_executor(None, gestor_nube.iniciar)
+                log.info("Nube 3D: %s", "cámara RealSense en marcha" if hay_camara
+                         else "sin cámara física, emitiendo nube sintética")
+
+                emisor_nube = EmisorNube3D(
+                    channel, gestor_nube,
+                    qp=config.DRACO_QP,
+                    nivel=config.DRACO_NIVEL_COMPRESION,
+                    fps_objetivo=args.nube_fps,
+                    chunk_bytes=config.NUBE_CHUNK_BYTES,
+                    buffer_max=config.NUBE_BUFFER_MAX_BYTES,
+                    registrar_csv=config.NUBE_REGISTRAR_CSV,
+                    canal_control=data_channel,
+                    buffer_control=config.NUBE_BUFFER_CONTROL_BYTES,
+                )
+                await emisor_nube.bucle()
+
             @pc.on("datachannel")
             def on_datachannel(channel):
-                nonlocal data_channel
+                nonlocal data_channel, tarea_nube
+
+                #---- Canal de nube de puntos: solo emitimos, no recibimos nada ----
+                if channel.label == config.NUBE_CHANNEL_LABEL:
+                    if not nube_habilitada:
+                        log.warning(f"DataChannel '{channel.label}' recibido pero la nube 3D "
+                                    f"está desactivada (--sin-nube3d)")
+                        return
+                    log.info(f"DataChannel '{channel.label}' establecido --- iniciando nube 3D.")
+                    tarea_nube = asyncio.create_task(arrancar_nube3d(channel))
+                    return
+
                 data_channel = channel
                 log.info(f"DataChannel '{channel.label}' establecido --- control activo.")
 
@@ -451,9 +544,22 @@ async def ejecutar_webrtc(args):
         
     finally:
         #---- Limpieza de recursos al salir ----
+        if emisor_nube is not None:
+            emisor_nube.detener()
+
+        if tarea_nube is not None and not tarea_nube.done():
+            tarea_nube.cancel()
+            try:
+                await tarea_nube
+            except (asyncio.CancelledError, Exception):
+                pass
+
+        if gestor_nube is not None:
+            gestor_nube.detener()
+
         if video_track is not None:
             video_track.detener()
-        
+
         if ser and ser.is_open:
             ser.close()
             log.info("Puerto serial cerrado")
@@ -476,7 +582,8 @@ def main():
     parser.add_argument(
         "puerto",
         type=str,
-        help="Puerto serial del robot. Ej: COM3 (Windows)"
+        nargs="?",
+        help="Puerto serial del robot. Ej: COM3 (Windows). No hace falta con --sin-brazo"
     )
     parser.add_argument(
         "--baudrate", type=int, default=115200,
@@ -498,7 +605,27 @@ def main():
         "--freq", type=float, default=50.0,
         help="Frecuencia máxima de envío de comandos al robot en Hz (default: 50)"
     )
+    parser.add_argument(
+        "--sin-brazo", action="store_true",
+        help="Usa un puerto serie simulado: permite probar vídeo y nube 3D sin el robot"
+    )
+    parser.add_argument(
+        "--sin-nube3d", dest="nube3d", action="store_false",
+        help="Desactiva la emisión de la nube de puntos 3D (deja solo el vídeo 2D)"
+    )
+    parser.add_argument(
+        "--nube-fps", type=int, default=config.NUBE_FPS_OBJETIVO,
+        help=f"FPS objetivo de la nube de puntos (default: {config.NUBE_FPS_OBJETIVO})"
+    )
+    parser.add_argument(
+        "--nube-max-puntos", type=int, default=config.NUBE_MAX_PUNTOS,
+        help=f"Puntos máximos por frame de nube (default: {config.NUBE_MAX_PUNTOS})"
+    )
+    parser.set_defaults(nube3d=config.NUBE_HABILITADA)
     args = parser.parse_args()
+
+    if args.puerto is None and not args.sin_brazo:
+        parser.error("hay que indicar el puerto serial del robot (o usar --sin-brazo)")
 
     try:
         asyncio.run(ejecutar_webrtc(args))

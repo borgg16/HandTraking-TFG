@@ -1,0 +1,20 @@
+# Dependencias del PC-ROBOT (venv_robot, Python 3.11.9)
+# Instalación:  py -3.11 -m venv venv_robot
+#               venv_robot\Scripts\pip install -r requirements.txt
+
+# --- Teleoperación y transporte (rama WithMetrics) ---
+aiortc==1.14.0
+aiohttp==3.13.5
+websockets==12.0
+pyserial==3.5
+opencv-python==5.0.0.93
+av==16.1.0
+numpy==2.4.6
+
+# --- Cámara 3D y compresión de nube de puntos (rama Camara3D-Draco) ---
+pyrealsense2==2.58.2.10647
+DracoPy==2.0.0
+
+# --- Análisis de resultados ---
+pandas==3.0.3
+matplotlib==3.10.9
