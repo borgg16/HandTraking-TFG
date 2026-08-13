@@ -2,6 +2,9 @@ import asyncio
 import fractions
 import json
 import logging
+import math
+import os
+import re
 import time
 import argparse
 from datetime import datetime
@@ -10,7 +13,6 @@ import cv2
 import numpy as np
 import serial
 import websockets
-import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Configuracion")))
 import config
@@ -73,7 +75,6 @@ def desnormalizar(norm_x, norm_y, norm_z, gripper):
     # norm_z = 0 -> brazo recogido -> X del robot pequeño
     # norm_z = 1 -> brazo estirado -> X del robot grande
     x_robot = X_MIN + norm_z *  (X_MAX - X_MIN)
-    #x_robot = X_MAX + norm_z *  (X_MIN - X_MAX)
 
     # norm_x = 0.5 -> centro -> Y del robot = 0
     # norm_x = 0 -> izquierda -> Y positiva (Y_MAX)
@@ -322,15 +323,21 @@ async def ejecutar_webrtc(args):
                                 return
 
                             if tipo == "csv_export":
-                                sesion   = data.get("sesion",
-                                            datetime.now().strftime("%Y%m%d_%H%M%S"))
+                                sesion_raw = data.get("sesion", datetime.now().strftime("%Y%m%d_%H%M%S"))
+                                sesion = os.path.basename(str(sesion_raw))
+                                if not re.match(r'^[a-zA-Z0-9_-]+$', sesion):
+                                    log.warning(f"Sesión no válida en csv_export: '{sesion_raw}'")
+                                    return
 
-                                # Crear carpeta si no existe
-                                import os
                                 ruta_resultados = "Pruebas_Conexion/Resultados_Robot" if os.path.exists("Pruebas_Conexion") else "resultados"
                                 os.makedirs(ruta_resultados, exist_ok=True)
 
-                                filename = f"{ruta_resultados}/red_{sesion}.csv"
+                                base_dir = os.path.realpath(ruta_resultados)
+                                filename = os.path.realpath(os.path.join(ruta_resultados, f"red_{sesion}.csv"))
+                                if not (filename == base_dir or filename.startswith(base_dir + os.sep)):
+                                    log.warning(f"Intento de path traversal detectado en csv_export: '{sesion_raw}'")
+                                    return
+
                                 with open(filename, "w", encoding="utf-8") as f:
                                     f.write(data.get("data", ""))
                                 log.info(f"[MetricsLogger] CSV guardado: {filename}")
@@ -350,6 +357,11 @@ async def ejecutar_webrtc(args):
                                 gripper = float(data.get("g", 1.0))
                             except ValueError as e:
                                 log.warning(f"Valores malformados: {e}")
+                                return
+
+                            if not (math.isfinite(norm_x) and math.isfinite(norm_y) and
+                                    math.isfinite(norm_z) and math.isfinite(gripper)):
+                                log.warning(f"Coordenadas no finitas recibidas: x={norm_x}, y={norm_y}, z={norm_z}, g={gripper}")
                                 return
 
                             # 5. Desnormalizar y enviar al robot
