@@ -7,10 +7,8 @@ faciles de aislar. Estos tests cubren el comportamiento normal, los casos
 limite y el comportamiento fuera de rango, sin necesitar hardware ni red
 (los imports pesados se sustituyen por dobles en conftest.py).
 
-NOTA (hallazgo documentado, NO corregido): el docstring de desnormalizar()
-dice "norm_x=0 -> izquierda -> Y negativa / norm_x=1 -> derecha -> Y positiva",
-pero la formula activa produce lo contrario. test_eje_x_signo verifica el
-comportamiento REAL del codigo (test de caracterizacion), no el documentado.
+Mapeo del eje X de Unity al eje Y del robot: norm_x=0 (izquierda) -> Y positiva (Y_MAX)
+y norm_x=1 (derecha) -> Y negativa (Y_MIN), según la fórmula activa validada en hardware real.
 """
 import math
 
@@ -111,7 +109,7 @@ class TestDesnormalizar(unittest.TestCase):
 
     Mapeos activos en produccion:
         x_robot = X_MIN + norm_z * (X_MAX - X_MIN)      # [5, 40] cm
-        y_robot = Y_MAX + norm_x * (Y_MIN - Y_MAX)      # ver test_eje_x_signo
+        y_robot = Y_MAX + norm_x * (Y_MIN - Y_MAX)      # ver test_eje_x_a_y
         z_robot = Z_MIN + norm_y * (Z_MAX - Z_MIN)      # [-10, 50] cm
         t       = T_CLOSED + (T_OPEN - T_CLOSED) * clamp(gripper, 0, 1)
     """
@@ -137,18 +135,16 @@ class TestDesnormalizar(unittest.TestCase):
         assert z_abajo == pytest.approx(Z_MIN)
         assert z_arriba == pytest.approx(Z_MAX)
 
-    def test_eje_x_signo(self):
+    def test_eje_x_a_y(self):
         """
-        CARACTERIZACION (discrepancia docstring/codigo, NO corregida):
-        el docstring dice 'norm_x=0 -> izquierda -> Y negativa' y
-        'norm_x=1 -> derecha -> Y positiva', pero la formula activa
-        (y_robot = Y_MAX + norm_x * (Y_MIN - Y_MAX)) produce lo contrario.
-        Este test verifica el comportamiento REAL del codigo tal como esta.
+        norm_x controla la posicion lateral (Y del robot):
+        norm_x=0 (izquierda del operador) -> Y del robot positiva (Y_MAX = +40 cm)
+        norm_x=1 (derecha del operador)   -> Y del robot negativa (Y_MIN = -40 cm)
         """
         _x, y_norm_x_0, *_ = desnormalizar(0.0, 0.5, 0.0, 1.0)
         _x, y_norm_x_1, *_ = desnormalizar(1.0, 0.5, 0.0, 1.0)
-        assert y_norm_x_0 == pytest.approx(Y_MAX)   # +40 (positivo), no negativo
-        assert y_norm_x_1 == pytest.approx(Y_MIN)   # -40 (negativo), no positivo
+        assert y_norm_x_0 == pytest.approx(Y_MAX)   # +40 (positivo) para izquierda
+        assert y_norm_x_1 == pytest.approx(Y_MIN)   # -40 (negativo) para derecha
 
     def test_gripper_extremos(self):
         """gripper 0 -> pinza cerrada (T_CLOSED); 1 -> abierta (T_OPEN)."""
