@@ -11,37 +11,7 @@ Mapeo del eje X de Unity al eje Y del robot: norm_x=0 (izquierda) -> Y positiva 
 y norm_x=1 (derecha) -> Y negativa (Y_MIN), según la fórmula activa validada en hardware real.
 """
 import math
-
-try:
-    import pytest
-except ImportError:
-    class Approx:
-        def __init__(self, val, abs_tol=1e-5):
-            self.val = val
-            self.abs_tol = abs_tol
-        def __eq__(self, other):
-            return math.isclose(self.val, float(other), abs_tol=self.abs_tol)
-        def __repr__(self):
-            return f"approx({self.val})"
-
-    class Parametrize:
-        def __call__(self, names, values):
-            def decorator(func):
-                def wrapper(instance, *args, **kwargs):
-                    arg_names = [n.strip() for n in names.split(",")]
-                    for row in values:
-                        row_dict = dict(zip(arg_names, row))
-                        func(instance, **row_dict)
-                return wrapper
-            return decorator
-
-    class PytestFallback:
-        def approx(self, val, rel=None, abs=1e-5):
-            return Approx(val, abs_tol=abs if abs is not None else 1e-5)
-        class mark:
-            parametrize = Parametrize()
-
-    pytest = PytestFallback()
+import pytest
 
 import os
 import sys
@@ -82,23 +52,25 @@ import unittest
 class TestClamp(unittest.TestCase):
     """clamp(v, vmin, vmax) = max(vmin, min(vmax, v))"""
 
-    @pytest.mark.parametrize("v, vmin, vmax, esperado", [
-        # Comportamiento normal: valor dentro de rango se devuelve tal cual
-        (5, 0, 10, 5),
-        (0.5, 0.0, 1.0, 0.5),   # uso real: clamp del gripper dentro de desnormalizar
-        # Casos limite: exactamente en los bordes
-        (0, 0, 10, 0),
-        (10, 0, 10, 10),
-        (0.0, 0.0, 1.0, 0.0),
-        (1.0, 0.0, 1.0, 1.0),
-        # Fuera de rango: se satura al limite correspondiente
-        (-5, 0, 10, 0),
-        (15, 0, 10, 10),
-        (-0.1, 0.0, 1.0, 0.0),
-        (1.1, 0.0, 1.0, 1.0),
-    ])
-    def test_rangos(self, v, vmin, vmax, esperado):
-        self.assertEqual(clamp(v, vmin, vmax), esperado)
+    def test_rangos(self):
+        casos = [
+            # Comportamiento normal: valor dentro de rango se devuelve tal cual
+            (5, 0, 10, 5),
+            (0.5, 0.0, 1.0, 0.5),   # uso real: clamp del gripper dentro de desnormalizar
+            # Casos limite: exactamente en los bordes
+            (0, 0, 10, 0),
+            (10, 0, 10, 10),
+            (0.0, 0.0, 1.0, 0.0),
+            (1.0, 0.0, 1.0, 1.0),
+            # Fuera de rango: se satura al limite correspondiente
+            (-5, 0, 10, 0),
+            (15, 0, 10, 10),
+            (-0.1, 0.0, 1.0, 0.0),
+            (1.1, 0.0, 1.0, 1.0),
+        ]
+        for v, vmin, vmax, esperado in casos:
+            with self.subTest(v=v, vmin=vmin, vmax=vmax, esperado=esperado):
+                self.assertEqual(clamp(v, vmin, vmax), esperado)
 
 
 # ----------------------------------------------------------- desnormalizar ---
@@ -153,15 +125,17 @@ class TestDesnormalizar(unittest.TestCase):
         assert t_cerrada == pytest.approx(T_CLOSED)
         assert t_abierta == pytest.approx(T_OPEN)
 
-    @pytest.mark.parametrize("gripper_fuera, gripper_equiv", [
-        (-0.3, 0.0),   # por debajo de 0 -> clampa a 0 (cerrada)
-        (1.5, 1.0),    # por encima de 1 -> clampa a 1 (abierta)
-    ])
-    def test_gripper_fuera_de_rango_se_clampa(self, gripper_fuera, gripper_equiv):
+    def test_gripper_fuera_de_rango_se_clampa(self):
         """El gripper si se limita internamente a [0, 1] via clamp()."""
-        *_, t_fuera = desnormalizar(0.5, 0.5, 0.0, gripper_fuera)
-        *_, t_equiv = desnormalizar(0.5, 0.5, 0.0, gripper_equiv)
-        assert t_fuera == pytest.approx(t_equiv)
+        casos = [
+            (-0.3, 0.0),   # por debajo de 0 -> clampa a 0 (cerrada)
+            (1.5, 1.0),    # por encima de 1 -> clampa a 1 (abierta)
+        ]
+        for gripper_fuera, gripper_equiv in casos:
+            with self.subTest(gripper_fuera=gripper_fuera, gripper_equiv=gripper_equiv):
+                *_, t_fuera = desnormalizar(0.5, 0.5, 0.0, gripper_fuera)
+                *_, t_equiv = desnormalizar(0.5, 0.5, 0.0, gripper_equiv)
+                assert t_fuera == pytest.approx(t_equiv)
 
     def test_coordenadas_espaciales_no_se_clampan(self):
         """
