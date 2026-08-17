@@ -11,11 +11,27 @@ Mapeo del eje X de Unity al eje Y del robot: norm_x=0 (izquierda) -> Y positiva 
 y norm_x=1 (derecha) -> Y negativa (Y_MIN), según la fórmula activa validada en hardware real.
 """
 import math
-import pytest
-
 import os
 import sys
 from unittest.mock import MagicMock
+
+try:
+    import pytest
+except ImportError:
+    class _Approx:
+        def __init__(self, expected, rel=1e-6, abs=1e-12):
+            self.expected = expected
+            self.rel = rel
+            self.abs = abs
+        def __eq__(self, actual):
+            return math.isclose(actual, self.expected, rel_tol=self.rel, abs_tol=self.abs)
+        def __repr__(self):
+            return f"approx({self.expected})"
+
+    class _PytestMock:
+        approx = _Approx
+
+    pytest = _PytestMock()
 
 class DummyMediaStreamTrack:
     kind = "video"

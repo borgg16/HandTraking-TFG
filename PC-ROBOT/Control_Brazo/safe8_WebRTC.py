@@ -50,10 +50,37 @@ Z_MIN, Z_MAX = -10.0, 50.0
 T_OPEN   = 0.5     # pinza completamente abierta
 T_CLOSED = 1.4     # pinza cerrada (aprox. 80°)
 
-# Resolución y FPS de la cámara del brazo que se transmite a Unity
-CAM_WIDTH = 640
-CAM_HEIGHT = 480
+# Resolución y FPS de la cámara del brazo que se transmite a Unity.
+# Por defecto 640x480 (4:3): es el formato con el que se han realizado el resto
+# de pruebas de vídeo del TFG (glass-to-glass, análisis de red), así los
+# resultados de las pruebas funcionales son comparables con los ya medidos.
+# El modo 16:9 (captura nativa 1280x720 -> salida 640x360 reescalada, para
+# aprovechar el FOV completo del sensor) queda disponible pero DESACTIVADO por
+# defecto; se activa con la variable de entorno MODO_16_9=1
+# (ver Pruebas_Funcionales/captura/captura_16_9.py).
+MODO_16_9 = os.environ.get("MODO_16_9", "0") == "1"
+
+if MODO_16_9:
+    CAM_WIDTH, CAM_HEIGHT = 640, 360            # resolución de salida al stream (16:9)
+    CAPTURA_WIDTH, CAPTURA_HEIGHT = 1280, 720   # captura nativa del sensor
+else:
+    CAM_WIDTH, CAM_HEIGHT = 640, 480            # resolución de salida al stream (4:3)
+    CAPTURA_WIDTH, CAPTURA_HEIGHT = CAM_WIDTH, CAM_HEIGHT
 CAM_FPS = 30
+
+# Overlay de montaje (fase P0.6): cruz de referencia sobre el vídeo eye-in-hand
+# para apuntar la cámara con precisión (vertical central entre las mordazas).
+# Solo para el montaje físico; debe estar DESACTIVADO durante las pruebas reales.
+# Se activa con la variable de entorno MOSTRAR_RETICULO=1
+# (ver Pruebas_Funcionales/captura/reticulo_overlay.py).
+MOSTRAR_RETICULO = os.environ.get("MOSTRAR_RETICULO", "0") == "1"
+
+# Filas guía del retículo como FRACCIÓN de la altura del frame, para que valgan
+# con cualquier resolución. Encuadre de referencia del TFG (definido en 640x360):
+#   puntas de las mordazas -> fila 180 px = 50% de la altura (en 640x480: fila 240)
+#   base del objeto / línea de mesa -> fila 310 px = 86% de la altura (en 640x480: fila 413)
+RETICULO_FRAC_MORDAZAS = 0.50
+RETICULO_FRAC_MESA = 0.86
 
 # =============== UTILIDADES =========================
 def clamp(v, vmin, vmax):
@@ -143,6 +170,31 @@ def enviar_comando_serial(ser, data):
         return None
 
 # ==================== VIDEO TRACK ===================
+def dibujar_reticulo(frame_bgr):
+    """
+    Dibuja sobre un frame BGR el overlay de montaje de la cámara (fase P0.6):
+
+      - Cruz verde centrada (vertical en x = w//2, horizontal en y = h//2), 1 px.
+      - Líneas horizontales amarillas en las filas guía: puntas de las mordazas
+        (RETICULO_FRAC_MORDAZAS) y línea de mesa (RETICULO_FRAC_MESA).
+
+    Se usan las dimensiones REALES del frame (frame.shape) y no las constantes
+    CAM_WIDTH/CAM_HEIGHT, porque cv2.VideoCapture.set() es solo una petición al
+    driver: si la cámara negocia otra resolución, el retículo sigue centrado.
+    """
+    h, w = frame_bgr.shape[:2]
+    VERDE = (0, 255, 0)       # cruz central
+    AMARILLO = (0, 255, 255)  # filas guía (no confundir con la cruz)
+
+    cv2.line(frame_bgr, (w // 2, 0), (w // 2, h), VERDE, 1)
+    cv2.line(frame_bgr, (0, h // 2), (w, h // 2), VERDE, 1)
+
+    y_mordazas = int(h * RETICULO_FRAC_MORDAZAS)
+    y_mesa = int(h * RETICULO_FRAC_MESA)
+    cv2.line(frame_bgr, (0, y_mordazas), (w, y_mordazas), AMARILLO, 1)
+    cv2.line(frame_bgr, (0, y_mesa), (w, y_mesa), AMARILLO, 1)
+    return frame_bgr
+
 class CameraVideoTrack(MediaStreamTrack):
     """
     Track de vídeo que captura desde la cámara USB conectada al PC del robot
@@ -157,10 +209,25 @@ class CameraVideoTrack(MediaStreamTrack):
         if not self.cap.isOpened():
             raise RuntimeError(f"No se pudo abrir la camara con indice {cam_index}")
 
-        # Configuramos resolucion y FPS en la camara
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_WIDTH)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_HEIGHT)
+        # Configuramos resolucion y FPS en la camara.
+        # OJO: cap.set() es solo una PETICION al driver; verificamos lo concedido.
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURA_WIDTH)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURA_HEIGHT)
         self.cap.set(cv2.CAP_PROP_FPS, CAM_FPS)
+
+        real_w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        real_h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if (real_w, real_h) != (CAPTURA_WIDTH, CAPTURA_HEIGHT):
+            log.warning(
+                f"La camara no concedio {CAPTURA_WIDTH}x{CAPTURA_HEIGHT}: "
+                f"esta capturando a {real_w}x{real_h}"
+            )
+        if MODO_16_9:
+            log.info(f"Modo 16:9 activo: captura {CAPTURA_WIDTH}x{CAPTURA_HEIGHT} "
+                     f"-> salida {CAM_WIDTH}x{CAM_HEIGHT}")
+        if MOSTRAR_RETICULO:
+            log.info("Reticulo de montaje ACTIVO (solo para P0.6; "
+                     "desactivar en pruebas reales)")
 
         self._pts = 0
         self._time_base = fractions.Fraction(1, CAM_FPS)
@@ -194,6 +261,14 @@ class CameraVideoTrack(MediaStreamTrack):
             # Si la camara no responde, enviamos un frame negro para no romper el stream
             frame_bgr = np.zeros((CAM_HEIGHT, CAM_WIDTH, 3), dtype=np.uint8)
             cv2.putText(frame_bgr, "CAMARA NO DISPONIBLE", (50, CAM_HEIGHT // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,0,255), 2)
+        else:
+            # Si capturamos en 16:9 nativo (1280x720) y la salida es 640x360, reescalamos
+            if MODO_16_9 and (frame_bgr.shape[1], frame_bgr.shape[0]) != (CAM_WIDTH, CAM_HEIGHT):
+                frame_bgr = cv2.resize(frame_bgr, (CAM_WIDTH, CAM_HEIGHT), interpolation=cv2.INTER_AREA)
+
+            # Overlay de retículo para calibración y montaje en fase P0.6
+            if MOSTRAR_RETICULO:
+                frame_bgr = dibujar_reticulo(frame_bgr)
 
         # OpenCV trabaja en BGR; av/WebRTC espera RGB
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
