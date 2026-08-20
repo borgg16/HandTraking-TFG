@@ -4,7 +4,7 @@
 SESSION_TOKEN = "TFG_Secret_Token_2026"
 
 # Parámetros del servidor de señalización
-SIGNALING_IP = "192.168.3.28"
+SIGNALING_IP = "192.168.3.27"
 SIGNALING_PORT = 8080
 
 # Parámetros de comunicación del hardware del robot

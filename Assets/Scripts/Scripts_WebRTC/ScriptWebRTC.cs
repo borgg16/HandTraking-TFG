@@ -20,6 +20,14 @@ public class ScriptWebRTC : MonoBehaviour
     [Tooltip("Token secreto de sesión para autenticación en señalización.")]
     public string sessionToken = "TFG_Secret_Token_2026";
 
+    [Header("Reconexión Automática")]
+    [Tooltip("Número máximo de intentos de conexión al servidor de señalización antes de rendirse")]
+    public int maxIntentosReconexion = 8;
+    [Tooltip("Espera inicial entre reintentos (ms). Se duplica en cada intento")]
+    public int delayReconexionInicialMs = 1000;
+    [Tooltip("Espera máxima entre reintentos (ms)")]
+    public int delayReconexionMaximoMs = 30000;
+
     [Header("Panel de Control")]
     [Tooltip("Imagen del video recibido")] //Muestra texto de ayuda emergente en el inspector para explicar la función de esta variable
     public RawImage imagenVideo; //Es raw y no Image porque vamos a asignar una textura de video que no es un sprite.
@@ -142,49 +150,96 @@ public class ScriptWebRTC : MonoBehaviour
 
     async Task ConectarSignaling() //Es async Task porque websocket.Connect() nos lo devuelve, como no se tocan objetos es seguro de usar
     {
-        //Creamos la conexion WebSocket al servidor de signaling
-        websocket = new ClientWebSocket();
+        //Capturamos el token de CANCELACION de ESTA sesion en una variable local: si
+        //ReiniciarConexion() crea un cancelToken nuevo a mitad de un reintento,
+        //este metodo sigue atado al suyo y termina solo al ser cancelado,
+        //sin interferir con la nueva sesion (evita dobles reconexiones).
+        var tokenCancelacion = cancelToken.Token;
+        int delayMs = delayReconexionInicialMs;
 
-        //LINEAS PARA INTENTAR CORREGIR COMPATIBILIDAD DE .NET CON LIBRERIA WEBRTC DE PY
-        websocket.Options.KeepAliveInterval = TimeSpan.Zero;
-
-
-        try
+        //Bucle de reintento con backoff exponencial (problema 5.7):
+        //1s, 2s, 4s... hasta un tope de delayReconexionMaximoMs entre intentos.
+        for (int intento = 1; intento <= maxIntentosReconexion; intento++)
         {
-            //ConnectAsync establecee la conexion TCP+handshake WebSocket.
-            //await pausa este metodo hasta que conecte sin bloquear Unity.
-            var uri = new Uri($"ws://{ipRobot}:{puertoWebRTC}/");
-            Debug.Log($"Intentando conectar a: {uri}");
-            await websocket.ConnectAsync(uri, cancelToken.Token);
+            //Limpieza de restos de un intento/sesion anterior (mismo patron que
+            //CerrarConexion()): CrearOferta() hace 'peerConnection = new
+            //RTCPeerConnection(...)' sin cerrar nunca la anterior, asi que hay que
+            //cerrarla aqui o se acumularian conexiones viejas en cada reintento.
+            peerConnection?.Close();
+            peerConnection = null;
+            dataChannel?.Close();
+            dataChannel = null;
+            conexionEstablecida = false;
 
-            Debug.Log("WebSocket conectado al servidor de señalizacion. Enviando mensaje de autenticación...");
+            //Creamos la conexion WebSocket al servidor de signaling
+            websocket = new ClientWebSocket();
 
-            // Enviar token de autenticación
-            var auth = new AuthMessage { type = "auth", token = sessionToken };
-            string authJson = JsonUtility.ToJson(auth);
-            var authBytes = Encoding.UTF8.GetBytes(authJson);
-            await websocket.SendAsync(
-                new ArraySegment<byte>(authBytes),
-                WebSocketMessageType.Text,
-                true,
-                cancelToken.Token
-            );
+            //LINEAS PARA INTENTAR CORREGIR COMPATIBILIDAD DE .NET CON LIBRERIA WEBRTC DE PY
+            websocket.Options.KeepAliveInterval = TimeSpan.Zero;
 
-            //Arrancamos el bucle de recepcion en segundo plano
-            // _ = descarta el Task porque no necesitamos esperarla
-            //El bucle corre indefinidamente hasta que se cancela en OnDestroy
-            _ = BucleRecepcion();
+            try
+            {
+                //ConnectAsync establecee la conexion TCP+handshake WebSocket.
+                //await pausa este metodo hasta que conecte sin bloquear Unity.
+                var uri = new Uri($"ws://{ipRobot}:{puertoWebRTC}/");
+                Debug.Log($"Intentando conectar a: {uri} (intento {intento}/{maxIntentosReconexion})");
+                await websocket.ConnectAsync(uri, tokenCancelacion);
 
-            //Lanzamos la creación de la oferta WebRTC.
-            StartCoroutine(CrearOferta());
+                Debug.Log("WebSocket conectado al servidor de señalizacion. Enviando mensaje de autenticación...");
 
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Error WebSocket: {e.GetType().Name}");
-            Debug.LogError($"Mensaje: {e.Message}");
-            Debug.LogError($"Inner: {e.InnerException?.Message}");
-            Debug.LogError($"Stack: {e.StackTrace}");
+                // Enviar token de autenticación
+                var auth = new AuthMessage { type = "auth", token = sessionToken };
+                string authJson = JsonUtility.ToJson(auth);
+                var authBytes = Encoding.UTF8.GetBytes(authJson);
+                await websocket.SendAsync(
+                    new ArraySegment<byte>(authBytes),
+                    WebSocketMessageType.Text,
+                    true,
+                    tokenCancelacion
+                );
+
+                //Arrancamos el bucle de recepcion en segundo plano
+                // _ = descarta el Task porque no necesitamos esperarla
+                //El bucle corre indefinidamente hasta que se cancela en OnDestroy
+                _ = BucleRecepcion();
+
+                //Lanzamos la creación de la oferta WebRTC.
+                StartCoroutine(CrearOferta());
+
+                return; //Conexion establecida: salimos del bucle de reintentos
+            }
+            catch (OperationCanceledException)
+            {
+                //Cancelacion intencionada (ReiniciarConexion()/OnDestroy()):
+                //salimos sin mas ruido ni reintentos.
+                return;
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"Error WebSocket: {e.GetType().Name}");
+                Debug.LogError($"Mensaje: {e.Message}");
+                Debug.LogError($"Inner: {e.InnerException?.Message}");
+                Debug.LogError($"Stack: {e.StackTrace}");
+
+                if (intento >= maxIntentosReconexion)
+                {
+                    Debug.LogError($"ScriptWebRTC: agotados los {maxIntentosReconexion} intentos de conexion. No se reintenta mas.");
+                    return;
+                }
+
+                Debug.LogWarning($"ScriptWebRTC: reintento {intento + 1}/{maxIntentosReconexion} en {delayMs} ms...");
+                try
+                {
+                    await Task.Delay(delayMs, tokenCancelacion);
+                }
+                catch (OperationCanceledException)
+                {
+                    //Cancelacion intencionada durante la espera del backoff.
+                    return;
+                }
+                //Backoff exponencial con tope
+                delayMs = Math.Min(delayMs * 2, delayReconexionMaximoMs);
+            }
         }
     }
 
@@ -193,19 +248,26 @@ public class ScriptWebRTC : MonoBehaviour
     //------------------------------------------------------------------
     async Task BucleRecepcion()
     {
+        //Capturamos el websocket y el token de cancelacion de ESTA sesion en variables locales:
+        //si ReiniciarConexion() sustituye los campos mientras este bucle sigue
+        //vivo, este bucle sigue atado a SU socket y SU token y termina solo,
+        //sin llegar a leer del socket de la nueva sesion.
+        var ws = websocket;
+        var tokenCancelacion = cancelToken.Token;
+
         //Creamos un buffer de 8KB para recibir mensajes
         //Los mensajes SDP de WebRTC pueden ser varios KB
         var buffer = new byte[8192];
 
-        while (websocket.State == WebSocketState.Open && !cancelToken.Token.IsCancellationRequested)
+        while (ws.State == WebSocketState.Open && !tokenCancelacion.IsCancellationRequested)
         {
             try
             {
                 //ReceiveAsync espera hasta que llegue un mensaje completo.
                 //Durante la espera no bloquea, otros Tasks pueden ejecutarse
-                var resultado = await websocket.ReceiveAsync(
+                var resultado = await ws.ReceiveAsync(
                     new ArraySegment<byte>(buffer),
-                    cancelToken.Token
+                    tokenCancelacion
                 );
 
                 if (resultado.MessageType == WebSocketMessageType.Close)
@@ -230,13 +292,22 @@ public class ScriptWebRTC : MonoBehaviour
             }
             catch (Exception e)
             {
-                if (!cancelToken.Token.IsCancellationRequested)
+                if (!tokenCancelacion.IsCancellationRequested)
                 {
                     Debug.LogError($"Error en bucle WebSocket: {e.Message}");
                 }
             }
         }
 
+        //Si salimos del bucle SIN cancelacion intencionada, la conexion se cayo
+        //sola (cierre del servidor o error de red): disparamos la reconexion
+        //automatica con backoff (problema 5.7). Si fue cancelacion intencionada
+        //(ReiniciarConexion()/OnDestroy()), no hacemos nada.
+        if (!tokenCancelacion.IsCancellationRequested)
+        {
+            Debug.LogWarning("ScriptWebRTC: WebSocket de señalizacion perdido. Iniciando reconexion automatica...");
+            _ = ConectarSignaling();
+        }
     }
 
 
