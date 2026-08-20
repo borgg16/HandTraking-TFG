@@ -16,6 +16,8 @@ import websockets
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Configuracion")))
 import config
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from Pruebas_Funcionales.registro.csv_funcional import RegistradorFuncional
 from aiortc import (
     RTCConfiguration,
     RTCIceServer,
@@ -308,6 +310,11 @@ async def ejecutar_webrtc(args):
         log.error("Imposible continuar sin conexión serial al robot")
         return
 
+    # Registro funcional M1-M4 (Fase P2): se abre sesión cuando el DataChannel
+    # queda establecido con Unity y se cierra al terminar ejecutar_webrtc()
+    # (bloque finally), tanto si la sesión acaba bien como por error/Ctrl+C.
+    registrador = RegistradorFuncional()
+
     min_dt = 1.0 / args.freq if args.freq > 0 else 0.0
     last_send = 0.0
 
@@ -374,9 +381,23 @@ async def ejecutar_webrtc(args):
                         data_channel = channel
                         log.info(f"DataChannel '{channel.label}' establecido --- control activo.")
 
+                        # Nueva sesión de registro funcional cada vez que se abre el
+                        # DataChannel (una reconexión de las gafas = una sesión nueva,
+                        # igual que se recrea la PeerConnection en el bloque "offer")
+                        registrador.abrir_sesion(
+                            id_operador=args.operador,
+                            condicion_red=args.condicion,
+                            id_intento=args.intento
+                        )
+
                         @channel.on("message")
                         def on_message(msg):
                             nonlocal last_send, ser
+
+                            # t_robot_recepcion (registro funcional M1-M4): se toma
+                            # aquí, nada más entrar, para que sea lo más fiel posible
+                            # al instante real de llegada al bucle asyncio.
+                            t_robot_recepcion = time.time() * 1000.0
 
                             # 1. Parsear JSON — si falla, descartar
                             try:
@@ -454,6 +475,19 @@ async def ejecutar_webrtc(args):
                                 "t": round(t * 5, 1)
                             }
                             enviar_comando_serial(ser, cmd)
+                            t_uart_escritura = time.time() * 1000.0
+
+                            # Registro funcional M1-M4 (Fase P2): una fila por cada
+                            # comando efectivamente enviado por UART. clamp_activo
+                            # compara la coordenada antes y después de clamp(), no
+                            # el propio valor "seguro" contra los límites.
+                            registrador.registrar_comando(
+                                norm_x=norm_x, norm_y=norm_y, norm_z=norm_z, g=gripper,
+                                t_robot_recepcion=t_robot_recepcion,
+                                x_cm=x_safe, y_cm=y_safe, z_cm=z_safe, t_rad=t,
+                                t_uart_escritura=t_uart_escritura,
+                                clamp_activo=(x_cm != x_safe or y_cm != y_safe or z_cm != z_safe)
+                            )
 
                             if TRACE_ENABLED:
                                 log.debug(
@@ -607,6 +641,8 @@ async def ejecutar_webrtc(args):
 
     finally:
         #---- Limpieza de recursos al salir ----
+        registrador.cerrar_sesion()
+
         if video_track is not None:
             video_track.detener()
 
@@ -659,6 +695,19 @@ def main():
     parser.add_argument(
         "--max-reintentos", type=int, default=8,
         help="Número máximo de intentos de reconexión del WebSocket de señalización (default: 8)"
+    )
+    parser.add_argument(
+        "--operador", type=str, default="OP1",
+        help="Identificador del operador para el registro funcional M1-M4 (default: OP1)"
+    )
+    parser.add_argument(
+        "--condicion", type=str, default="C1_WIFI_SIN_CARGA",
+        help="Condición de red evaluada para el registro funcional, ej. C4_ETHERNET, "
+             "C1_WIFI_SIN_CARGA, C2_WIFI_CARGA_MEDIA, C3_WIFI_CARGA_ALTA (default: C1_WIFI_SIN_CARGA)"
+    )
+    parser.add_argument(
+        "--intento", type=int, default=1,
+        help="Número de intento dentro de la condición actual, para las pruebas funcionales M1-M4 (default: 1)"
     )
     args = parser.parse_args()
 
