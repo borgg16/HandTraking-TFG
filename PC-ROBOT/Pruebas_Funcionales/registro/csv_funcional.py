@@ -115,6 +115,8 @@ class RegistradorFuncional:
         self._writer = csv.DictWriter(self._file, fieldnames=CAMPOS_FUNCIONAL)
         self._writer.writeheader()
         self._file.flush()
+        self._current_path = csv_path
+        self._filas_escritas = 0
         self.sesion_activa = True
 
         log.info(f"Sesion funcional iniciada. Guardando en: {csv_path}")
@@ -145,23 +147,30 @@ class RegistradorFuncional:
 
         self._writer.writerow(fila)
         self._file.flush()
+        self._filas_escritas += 1
 
     def set_intento(self, id_intento: int):
         """Actualiza el ID del intento actual dentro de la misma sesión."""
         self.id_intento = id_intento
 
     def cerrar_sesion(self):
-        """Cierra el archivo CSV de la sesión de manera segura."""
+        """Cierra el archivo CSV de la sesión de manera segura y elimina archivos vacíos sin datos."""
         if self._file is not None:
             try:
                 self._file.flush()
                 self._file.close()
-                log.info("Sesion funcional cerrada correctamente.")
+                if self._filas_escritas == 0 and hasattr(self, "_current_path") and self._current_path and self._current_path.exists():
+                    self._current_path.unlink()
+                    log.info("Sesion funcional cerrada (archivo vacío sin comandos descartado).")
+                else:
+                    log.info(f"Sesion funcional cerrada correctamente ({self._filas_escritas} comandos registrados).")
             except Exception as e:
                 log.error(f"Error al cerrar fichero funcional: {e}")
             finally:
                 self._file = None
                 self._writer = None
+                self._current_path = None
+                self._filas_escritas = 0
                 self.sesion_activa = False
 
     def guardar_calibracion_operador(

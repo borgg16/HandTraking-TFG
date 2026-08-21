@@ -8,6 +8,7 @@ import re
 import time
 import argparse
 from datetime import datetime
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -313,7 +314,9 @@ async def ejecutar_webrtc(args):
     # Registro funcional M1-M4 (Fase P2): se abre sesión cuando el DataChannel
     # queda establecido con Unity y se cierra al terminar ejecutar_webrtc()
     # (bloque finally), tanto si la sesión acaba bien como por error/Ctrl+C.
-    registrador = RegistradorFuncional()
+    # Se organiza en subcarpetas según la métrica (ej. resultados/M1/csv_grabaciones, resultados/M2/csv_grabaciones...)
+    ruta_salida = Path(__file__).resolve().parents[1] / "Pruebas_Funcionales" / "resultados" / args.metrica / "csv_grabaciones"
+    registrador = RegistradorFuncional(output_dir=ruta_salida)
 
     min_dt = 1.0 / args.freq if args.freq > 0 else 0.0
     last_send = 0.0
@@ -708,6 +711,10 @@ def main():
     parser.add_argument(
         "--intento", type=int, default=1,
         help="Número de intento dentro de la condición actual, para las pruebas funcionales M1-M4 (default: 1)"
+    )
+    parser.add_argument(
+        "--metrica", type=str, default="M1",
+        help="Subcarpeta de la métrica en evaluación, ej. M1, M2, M3, M4 (default: M1)"
     )
     args = parser.parse_args()
 
