@@ -8,8 +8,12 @@ Calcula el retardo temporal exacto entre el inicio del movimiento de la mano del
 y el inicio de la respuesta física del brazo robótico (Métrica M1).
 
 Uso:
-    python PC-ROBOT/Pruebas_Funcionales/analisis/analisis_latencia_m1.py --video PC-ROBOT/Pruebas_Funcionales/grabaciones_m1/video_M1_C1_WIFI_SIN_CARGA.mp4 --condicion C1_WIFI_SIN_CARGA
+    python PC-ROBOT/Pruebas_Funcionales/analisis/analisis_latencia_m1.py --video PC-ROBOT/Pruebas_Funcionales/grabaciones_m1/video_M1_C1_ETHERNET_SIN_CARGA.mp4 --condicion C1_ETHERNET_SIN_CARGA
     python PC-ROBOT/Pruebas_Funcionales/analisis/analisis_latencia_m1.py --carpeta-videos PC-ROBOT/Pruebas_Funcionales/grabaciones_m1/
+
+Nota: el proyecto usa siempre Ethernet + Clumsy (nunca Wi-Fi real) para las condiciones C1-C4, por
+motivos de reproducibilidad. Nombra los vídeos con "C1"/"C2"/"C3"/"C4" en el nombre de archivo para
+que el script asigne automáticamente la condición Ethernet+Clumsy correspondiente.
 """
 
 import argparse
@@ -177,8 +181,8 @@ def main():
                         help="Ruta a un archivo de vídeo MP4 individual")
     parser.add_argument("--carpeta-videos", type=str, default=None,
                         help="Carpeta que contiene los vídeos a procesar")
-    parser.add_argument("--condicion", type=str, default="C1_WIFI_SIN_CARGA",
-                        help="Condición de red evaluada (ej: C1_WIFI_SIN_CARGA, C2_WIFI_CARGA_MEDIA, C3_WIFI_CARGA_ALTA)")
+    parser.add_argument("--condicion", type=str, default="C1_ETHERNET_SIN_CARGA",
+                        help="Condición de red evaluada (ej: C1_ETHERNET_SIN_CARGA, C2_ETHERNET_CLUMSY_CARGA_MEDIA, C3_ETHERNET_CLUMSY_CARGA_ALTA)")
     parser.add_argument("--roi-mano", type=str, default=None,
                         help="Coordenadas manuales ROI mano: 'x,y,w,h'")
     parser.add_argument("--roi-robot", type=str, default=None,
@@ -236,13 +240,13 @@ def main():
     for v in lista_videos:
         cond = args.condicion
         if "C1" in v.name:
-            cond = "C1_WIFI_SIN_CARGA"
+            cond = "C1_ETHERNET_SIN_CARGA"
         elif "C2" in v.name:
-            cond = "C2_WIFI_CARGA_MEDIA"
+            cond = "C2_ETHERNET_CLUMSY_CARGA_MEDIA"
         elif "C3" in v.name:
-            cond = "C3_WIFI_CARGA_ALTA"
+            cond = "C3_ETHERNET_CLUMSY_CARGA_ALTA"
         elif "C4" in v.name:
-            cond = "C4_ETHERNET"
+            cond = "C4_ETHERNET_CLUMSY_EXTRA"
 
         log.info(f"Analizando a 240 FPS: {v.name} ({cond})...")
         res = procesar_video_240fps(v, roi_mano, roi_robot, fps_override=args.fps)
