@@ -25,9 +25,25 @@ PC-ROBOT/Pruebas_Funcionales/
 └── README.md                     # Manual operativo y documentación
 ```
 
+## 2. Condiciones de Red y Configuración Estándar de Clumsy
+
+Para garantizar la reproducibilidad científica en las pruebas funcionales (M1–M4), se establecen los siguientes parámetros oficiales de emulación de red mediante **Clumsy**:
+
+* **Filtro de Clumsy (Filter):**
+  ```text
+  ip.DstAddr == 192.168.3.5 or ip.SrcAddr == 192.168.3.5
+  ```
+
+| Condición Experimental | Estado Clumsy | Configuración Clumsy | Escenario Simulado |
+|---|:---:|---|---|
+| **`C1_SIN_CARGA`** / `C1_WIFI_SIN_CARGA` | 🛑 **STOP** | Sin degradación (0 ms, 0% drop) | Red limpia de referencia basal. |
+| **`C2_CARGA_MEDIA`** / `C2_WIFI_CARGA_MEDIA` | ▶️ **START** | • **Lag:** `10 ms`<br>• **Drop:** `2.0%` | Tráfico concurrente moderado. |
+| **`C3_CARGA_ALTA`** / `C3_WIFI_CARGA_ALTA` | ▶️ **START** | • **Lag:** `15 ms`<br>• **Drop:** `5.0%` | Congestión severa de canal. |
+| **`C4_ETHERNET`** | 🛑 **STOP** | Enlace cableado directo | Latencia mínima teórica. |
+
 ---
 
-## 2. Guía de Ejecución de los Scripts
+## 3. Guía de Ejecución de los Scripts
 
 ### 2.1 Captura y Calibración de Cámara (*Eye-in-Hand*)
 

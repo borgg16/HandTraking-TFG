@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Script 6 — Análisis Automático de Latencia de Control M1 mediante Procesamiento de Vídeo.
+Script 6 — Análisis Automático de Latencia de Control M1 mediante Procesamiento de Vídeo (240 FPS).
 
-Procesa grabaciones de vídeo de alta cadencia para detectar el desfase temporal entre
-el inicio del movimiento de la mano del operador y la respuesta física del robot.
+Diseñado específicamente para grabaciones de cámara lenta a 240 FPS (High Speed Recording).
+Calcula el retardo temporal exacto entre el inicio del movimiento de la mano del operador
+y el inicio de la respuesta física del brazo robótico (Métrica M1).
 
 Uso:
-    python analisis_latencia_m1.py --video prueba1.mp4 --condicion C1_WIFI_SIN_CARGA
-    python analisis_latencia_m1.py --carpeta-videos ./videos_c1/ --condicion C1_WIFI_SIN_CARGA
+    python PC-ROBOT/Pruebas_Funcionales/analisis/analisis_latencia_m1.py --video PC-ROBOT/Pruebas_Funcionales/grabaciones_m1/video_M1_C1_WIFI_SIN_CARGA.mp4 --condicion C1_WIFI_SIN_CARGA
+    python PC-ROBOT/Pruebas_Funcionales/analisis/analisis_latencia_m1.py --carpeta-videos PC-ROBOT/Pruebas_Funcionales/grabaciones_m1/
 """
 
 import argparse
@@ -18,21 +19,21 @@ import logging
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 
 # Configurar directorios
 CURRENT_DIR = Path(__file__).resolve().parent
-RESULTADOS_DIR = CURRENT_DIR.parent / "resultados"
+RESULTADOS_DIR = CURRENT_DIR.parent / "resultados" / "M1" / "latencias_resultados"
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     datefmt="%H:%M:%S"
 )
-log = logging.getLogger("analisis_latencia_m1")
+log = logging.getLogger("analisis_latencia_m1_240fps")
 
 def parsear_roi(roi_str: Optional[str]) -> Optional[Tuple[int, int, int, int]]:
     """Convierte una cadena 'x,y,w,h' a una tupla de enteros."""
@@ -43,82 +44,100 @@ def parsear_roi(roi_str: Optional[str]) -> Optional[Tuple[int, int, int, int]]:
         raise ValueError("El ROI debe tener el formato x,y,w,h")
     return (partes[0], partes[1], partes[2], partes[3])
 
-def seleccionar_roi_interactivo(video_path: Path, nombre_roi: str) -> Tuple[int, int, int, int]:
+def seleccionar_roi_interactivo(video_path: Path, nombre_roi: str) -> Optional[Tuple[int, int, int, int]]:
     """Abre el primer fotograma del vídeo con cv2.selectROI para que el usuario seleccione la región."""
     cap = cv2.VideoCapture(str(video_path))
     ret, frame = cap.read()
     cap.release()
     if not ret or frame is None:
-        raise RuntimeError(f"No se pudo leer el primer frame del video: {video_path}")
+        log.warning(f"No se pudo leer el primer frame de {video_path}")
+        return None
 
-    log.info(f"Selecciona con el ratón la ROI de [{nombre_roi}] y pulsa ENTER o ESPACIO (C para cancelar)...")
-    r = cv2.selectROI(f"Seleccion ROI - {nombre_roi}", frame, fromCenter=False, showCrosshair=True)
-    cv2.destroyAllWindows()
-    log.info(f"ROI seleccionada para [{nombre_roi}]: x={r[0]}, y={r[1]}, w={r[2]}, h={r[3]}")
-    return (int(r[0]), int(r[1]), int(r[2]), int(r[3]))
+    try:
+        log.info(f"Selecciona con el ratón la ROI de [{nombre_roi}] y pulsa ENTER o ESPACIO (C o ESC para omitir)...")
+        r = cv2.selectROI(f"Seleccion ROI - {nombre_roi} (240 FPS)", frame, fromCenter=False, showCrosshair=True)
+        cv2.destroyAllWindows()
+        if r[2] > 0 and r[3] > 0:
+            log.info(f"ROI seleccionada para [{nombre_roi}]: x={r[0]}, y={r[1]}, w={r[2]}, h={r[3]}")
+            return (int(r[0]), int(r[1]), int(r[2]), int(r[3]))
+    except Exception as e:
+        log.warning(f"Interacción gráfica no disponible ({e}). Usando partición automática.")
+    return None
 
-def detectar_inicio_movimiento(
+def detectar_inicio_movimiento_240fps(
     video_path: Path,
-    roi: Tuple[int, int, int, int],
-    umbral: float = 15.0,
-    frames_sostenidos: int = 3
+    roi: Optional[Tuple[int, int, int, int]] = None,
+    lado_defecto: str = "izquierda",
+    sensibilidad_sigma: float = 3.5
 ) -> Optional[int]:
     """
-    Analiza la ROI en escala de grises y localiza el primer fotograma donde la diferencia
-    absoluta consecutiva media supera el umbral durante frames_sostenidos consecutivos.
+    Detecta el frame de inicio de movimiento adaptado a cámaras de 240 FPS.
+    Utiliza el análisis de actividad diferencial frente al estado basal de reposo.
     """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         log.error(f"No se pudo abrir el archivo de video: {video_path}")
         return None
 
-    x, y, w, h = roi
-    ret, frame_prev = cap.read()
-    if not ret or frame_prev is None:
-        cap.release()
+    frames_gray = []
+    while True:
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            break
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frames_gray.append(gray)
+    cap.release()
+
+    if not frames_gray:
         return None
 
-    gray_prev = cv2.cvtColor(frame_prev[y:y+h, x:x+w], cv2.COLOR_BGR2GRAY)
+    h, w = frames_gray[0].shape
 
-    frame_idx = 1
-    candidato_inicio = None
-    consecutivos = 0
-
-    while True:
-        ret, frame_curr = cap.read()
-        if not ret or frame_curr is None:
-            break
-
-        gray_curr = cv2.cvtColor(frame_curr[y:y+h, x:x+w], cv2.COLOR_BGR2GRAY)
-        diff = cv2.absdiff(gray_curr, gray_prev)
-        score = float(np.mean(diff))
-
-        if score >= umbral:
-            if consecutivos == 0:
-                candidato_inicio = frame_idx
-            consecutivos += 1
-            if consecutivos >= frames_sostenidos:
-                cap.release()
-                return candidato_inicio
+    if roi is not None and roi[2] > 0 and roi[3] > 0:
+        rx, ry, rw, rh = roi
+        # Asegurar límites dentro del frame
+        rx, ry = max(0, rx), max(0, ry)
+        rw = min(rw, w - rx)
+        rh = min(rh, h - ry)
+        cropped_frames = [f[ry:ry+rh, rx:rx+rw] for f in frames_gray]
+    else:
+        # Fallback espacial automático: mitad izquierda (mano/operador) o mitad derecha (robot)
+        if lado_defecto == "izquierda":
+            cropped_frames = [f[:, :w//2] for f in frames_gray]
         else:
-            consecutivos = 0
-            candidato_inicio = None
+            cropped_frames = [f[:, w//2:] for f in frames_gray]
 
-        gray_prev = gray_curr
-        frame_idx += 1
+    # Calcular serie temporal de actividad respecto al fotograma de reposo inicial
+    n_frames = len(cropped_frames)
+    if n_frames < 25:
+        return None
 
-    cap.release()
+    # Diferencia frame a frame y respecto al frame de reposo
+    frame_ref = cropped_frames[0]
+    actividad_rel = [float(np.mean(cv2.absdiff(f, frame_ref))) for f in cropped_frames]
+
+    # Calcular estadísticas del estado de reposo (primeros 20 fotogramas = ~83 ms)
+    n_base = min(20, n_frames // 4)
+    base_media = float(np.mean(actividad_rel[:n_base]))
+    base_std = float(np.std(actividad_rel[:n_base]))
+    umbral_dinamico = base_media + sensibilidad_sigma * max(base_std, 0.4)
+
+    # Localizar el primer frame que supera el umbral sostenidamente por 3 frames
+    for i in range(n_base, n_frames - 3):
+        if (actividad_rel[i] > umbral_dinamico and
+            actividad_rel[i+1] > umbral_dinamico and
+            actividad_rel[i+2] > umbral_dinamico):
+            return i
+
     return None
 
-def procesar_video(
+def procesar_video_240fps(
     video_path: Path,
-    roi_mano: Tuple[int, int, int, int],
-    roi_robot: Tuple[int, int, int, int],
-    umbral: float = 15.0,
-    frames_sostenidos: int = 3,
+    roi_mano: Optional[Tuple[int, int, int, int]] = None,
+    roi_robot: Optional[Tuple[int, int, int, int]] = None,
     fps_override: Optional[float] = None
-) -> dict:
-    """Procesa un único vídeo y calcula la latencia de control M1."""
+) -> Dict[str, str]:
+    """Procesa un vídeo de alta cadencia (240 FPS) y calcula la latencia de control M1."""
     cap = cv2.VideoCapture(str(video_path))
     fps = cap.get(cv2.CAP_PROP_FPS)
     cap.release()
@@ -126,13 +145,14 @@ def procesar_video(
     if fps_override and fps_override > 0:
         fps = fps_override
     elif fps <= 0 or np.isnan(fps):
-        fps = 30.0  # Fallback estándar
+        fps = 240.32  # Fallback a 240 FPS
 
-    f_mano = detectar_inicio_movimiento(video_path, roi_mano, umbral, frames_sostenidos)
-    f_robot = detectar_inicio_movimiento(video_path, roi_robot, umbral, frames_sostenidos)
+    f_mano = detectar_inicio_movimiento_240fps(video_path, roi_mano, lado_defecto="izquierda")
+    f_robot = detectar_inicio_movimiento_240fps(video_path, roi_robot, lado_defecto="derecha")
 
     if f_mano is not None and f_robot is not None:
-        latencia_ms = round(((f_robot - f_mano) / fps) * 1000.0, 2)
+        diff_frames = f_robot - f_mano
+        latencia_ms = round((diff_frames / fps) * 1000.0, 2)
         f_mano_str = str(f_mano)
         f_robot_str = str(f_robot)
         latencia_str = str(latencia_ms)
@@ -151,26 +171,24 @@ def procesar_video(
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Análisis Automático de Latencia de Control M1 por Visión"
+        description="Análisis Automático de Latencia de Control M1 para Grabaciones a 240 FPS"
     )
     parser.add_argument("--video", type=str, default=None,
-                        help="Ruta a un archivo de video específico")
+                        help="Ruta a un archivo de vídeo MP4 individual")
     parser.add_argument("--carpeta-videos", type=str, default=None,
-                        help="Carpeta que contiene videos para procesamiento por lotes")
+                        help="Carpeta que contiene los vídeos a procesar")
     parser.add_argument("--condicion", type=str, default="C1_WIFI_SIN_CARGA",
-                        help="Nombre de la condición de red evaluada (default: C1_WIFI_SIN_CARGA)")
+                        help="Condición de red evaluada (ej: C1_WIFI_SIN_CARGA, C2_WIFI_CARGA_MEDIA, C3_WIFI_CARGA_ALTA)")
     parser.add_argument("--roi-mano", type=str, default=None,
-                        help="Coordenadas de la ROI de la mano: 'x,y,w,h'")
+                        help="Coordenadas manuales ROI mano: 'x,y,w,h'")
     parser.add_argument("--roi-robot", type=str, default=None,
-                        help="Coordenadas de la ROI del robot: 'x,y,w,h'")
-    parser.add_argument("--umbral-movimiento", type=float, default=15.0,
-                        help="Umbral de diferencia media de intensidad (default: 15.0)")
-    parser.add_argument("--frames-sostenidos", type=int, default=3,
-                        help="Fotogramas consecutivos sobre el umbral para validar (default: 3)")
+                        help="Coordenadas manuales ROI robot: 'x,y,w,h'")
+    parser.add_argument("--interactivo", action="store_true", default=False,
+                        help="Forzar ventana interactiva de selección de ROI con ratón")
     parser.add_argument("--fps", type=float, default=None,
-                        help="Tasa de FPS manual para el cálculo de tiempo")
+                        help="Tasa de FPS manual (default: extraído del vídeo, ~240.32)")
     parser.add_argument("--salida-csv", type=str, default=None,
-                        help="Ruta personalizada del fichero CSV de salida")
+                        help="Ruta personalizada para el archivo CSV de salida")
 
     args = parser.parse_args()
 
@@ -182,58 +200,72 @@ def main():
         if v_path.exists():
             lista_videos.append(v_path)
         else:
-            log.error(f"El fichero indicado no existe: {args.video}")
+            log.error(f"El vídeo no existe: {args.video}")
             sys.exit(1)
     elif args.carpeta_videos:
         c_path = Path(args.carpeta_videos)
-        for ext in ["*.mp4", "*.avi", "*.mkv", "*.mov", "*.MP4", "*.AVI"]:
+        for ext in ["*.mp4", "*.avi", "*.mkv", "*.mov"]:
             lista_videos.extend(c_path.glob(ext))
-        lista_videos = sorted(lista_videos)
+        lista_videos = sorted(list(set(lista_videos)))
         if not lista_videos:
-            log.error(f"No se encontraron videos en la carpeta: {args.carpeta_videos}")
+            log.error(f"No se encontraron vídeos en: {args.carpeta_videos}")
             sys.exit(1)
     else:
-        log.error("Debe especificar --video o --carpeta-videos.")
+        # Por defecto procesar todos los vídeos en grabaciones_m1
+        c_path = CURRENT_DIR.parent / "grabaciones_m1"
+        if c_path.exists():
+            for ext in ["*.mp4", "*.avi", "*.mkv", "*.mov"]:
+                lista_videos.extend(c_path.glob(ext))
+            lista_videos = sorted(list(set(lista_videos)))
+
+    if not lista_videos:
+        log.error("No hay vídeos para procesar. Especifica --video o --carpeta-videos.")
         sys.exit(1)
 
     # Determinar ROIs
     roi_mano = parsear_roi(args.roi_mano)
     roi_robot = parsear_roi(args.roi_robot)
 
-    if roi_mano is None:
-        roi_mano = seleccionar_roi_interactivo(lista_videos[0], "MANO DEL OPERADOR")
-    if roi_robot is None:
-        roi_robot = seleccionar_roi_interactivo(lista_videos[0], "EFECTOR ROBOT")
-
-    # CSV de salida
-    if args.salida_csv:
-        csv_salida = Path(args.salida_csv)
-    else:
-        csv_salida = RESULTADOS_DIR / f"latencia_m1_{args.condicion}.csv"
-
-    log.info(f"Iniciando analisis de {len(lista_videos)} videos. Salida en: {csv_salida}")
+    if args.interactivo:
+        if roi_mano is None:
+            roi_mano = seleccionar_roi_interactivo(lista_videos[0], "MANO DEL OPERADOR")
+        if roi_robot is None:
+            roi_robot = seleccionar_roi_interactivo(lista_videos[0], "EFECTOR ROBOT")
 
     resultados = []
     for v in lista_videos:
-        log.info(f"Procesando: {v.name}...")
-        res = procesar_video(
-            v, roi_mano, roi_robot,
-            umbral=args.umbral_movimiento,
-            frames_sostenidos=args.frames_sostenidos,
-            fps_override=args.fps
-        )
-        res["condicion"] = args.condicion
-        resultados.append(res)
-        log.info(f" -> Resultado {v.name}: f_mano={res['f_mano']}, f_robot={res['f_robot']}, L_control={res['L_control_ms']} ms")
+        cond = args.condicion
+        if "C1" in v.name:
+            cond = "C1_WIFI_SIN_CARGA"
+        elif "C2" in v.name:
+            cond = "C2_WIFI_CARGA_MEDIA"
+        elif "C3" in v.name:
+            cond = "C3_WIFI_CARGA_ALTA"
+        elif "C4" in v.name:
+            cond = "C4_ETHERNET"
 
-    # Escribir CSV
-    with open(csv_salida, mode="w", newline="", encoding="utf-8") as f:
-        fieldnames = ["video", "f_mano", "f_robot", "fps", "L_control_ms", "condicion"]
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        log.info(f"Analizando a 240 FPS: {v.name} ({cond})...")
+        res = procesar_video_240fps(v, roi_mano, roi_robot, fps_override=args.fps)
+        res["condicion"] = cond
+        resultados.append(res)
+        log.info(f" -> {v.name}: f_mano={res['f_mano']}, f_robot={res['f_robot']}, L_control={res['L_control_ms']} ms ({res['fps']} FPS)")
+
+        # Guardar CSV individual
+        csv_indiv = RESULTADOS_DIR / f"latencia_m1_{cond}.csv"
+        with open(csv_indiv, mode="w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=["video", "f_mano", "f_robot", "fps", "L_control_ms", "condicion"])
+            writer.writeheader()
+            writer.writerow(res)
+
+    # Guardar tabla resumen consolidada
+    csv_resumen = RESULTADOS_DIR / "tabla_resumen_latencia_m1.csv"
+    with open(csv_resumen, mode="w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["video", "f_mano", "f_robot", "fps", "L_control_ms", "condicion"])
         writer.writeheader()
         writer.writerows(resultados)
 
-    log.info(f"Analisis M1 finalizado. Guardado en {csv_salida}")
+    log.info(f"Análisis M1 a 240 FPS finalizado con éxito.")
+    log.info(f"Resultados guardados en: {RESULTADOS_DIR}")
 
 if __name__ == "__main__":
     main()

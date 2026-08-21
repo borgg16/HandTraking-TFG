@@ -1,0 +1,81 @@
+================================================================================
+GUIA RAPIDA DE INSTALACION Y REQUISITOS — TFG TELEOPERACION ROBOTICA CON QUEST
+================================================================================
+
+Este documento detalla los pasos para instalar y ejecutar todo el entorno software 
+del PC de control del robot (RoArm-M2) y el pipeline de analisis de metricas.
+
+--------------------------------------------------------------------------------
+1. REQUISITOS PREVIOS DEL SISTEMA
+--------------------------------------------------------------------------------
+- Sistema Operativo: Windows 10 / 11 (o Linux Ubuntu 22.04 LTS / 24.04 LTS).
+- Python: Version recomendada **Python 3.11.x** (64-bit) o Python 3.10.x.
+  * NOTA: Asegurate de marcar la casilla "Add Python to PATH" durante la instalacion de Python.
+- Git (opcional, para clonar el repositorio).
+
+--------------------------------------------------------------------------------
+2. INSTALACION EN 3 PASOS
+--------------------------------------------------------------------------------
+
+PASO 1: Abrir una terminal (PowerShell o CMD) y situarse en la carpeta PC-ROBOT:
+    cd PC-ROBOT
+
+PASO 2: Crear el entorno virtual de Python:
+    python -m venv venv_robot
+
+PASO 3: Activar el entorno virtual e instalar todas las dependencias:
+    - En Windows (PowerShell):
+        .\venv_robot\Scripts\Activate.ps1
+        pip install -r requirements.txt
+    
+    - En Windows (CMD):
+        venv_robot\Scripts\activate.bat
+        pip install -r requirements.txt
+
+    - En Linux / macOS:
+        source venv_robot/bin/activate
+        pip install -r requirements.txt
+
+--------------------------------------------------------------------------------
+3. LISTA DE DEPENDENCIAS Y PROPOSITO EN EL TFG
+--------------------------------------------------------------------------------
+A) COMUNICACION WEBRTC Y RED
+   - aiortc (1.14.0): Protocolo WebRTC asincrono para transmision de video y DataChannels.
+   - av (16.1.0): Enlace directo con FFmpeg para codificacion/decodificacion de video (H.264/VP8).
+   - websockets (12.0) y aiohttp (3.13.5): Servidor y cliente de señalizacion WebSocket.
+   - pylibsrtp (1.0.0) y cryptography (48.0.0): Cifrado seguro de flujo multimedia SRTP/DTLS.
+
+B) CONTROL DEL ROBOT Y PUERTO SERIE
+   - pyserial (3.5): Comunicacion serie UART con el microcontrolador ESP32 del brazo RoArm-M2.
+
+C) VISION POR COMPUTADOR Y ANALISIS DE LATENCIA A 240 FPS
+   - opencv-python (5.0.0.93): Captura de camara, calibracion Eye-in-Hand y deteccion temporal de movimiento.
+   - numpy (2.4.6): Procesamiento matricial de imagenes y transformaciones cinematicas.
+   - pillow (12.2.0): Manejo y guardado de formatos de imagen.
+
+D) ANALISIS ESTADISTICO Y EXPORTACION DE METRICAS (M1 - M4)
+   - pandas (3.0.3): Procesamiento y estructuracion de ficheros CSV de telemetria.
+   - scipy (1.17.1): Pruebas estadisticas no parametricas (Kruskal-Wallis, Mann-Whitney U, Wilcoxon).
+   - matplotlib (3.10.9) y seaborn (0.13.2): Generacion de graficas, curvas de aprendizaje y dispersion.
+
+--------------------------------------------------------------------------------
+4. COMANDOS PRINCIPALES DE EJECUCION
+--------------------------------------------------------------------------------
+
+A) Iniciar Servidor de Señalizacion:
+   python PC-ROBOT/Control_Brazo/signaling_server.py
+
+B) Iniciar Control del Robot con Registro Funcional (Ejemplo Condicion C1, Metrica M1):
+   python PC-ROBOT/Control_Brazo/safe8_WebRTC.py COM9 --ip 192.168.3.28 --operador OP1 --condicion C1_WIFI_SIN_CARGA --metrica M1
+
+C) Analizar Videos a Camara Lenta de 240 FPS (Calculo de Latencia M1):
+   python PC-ROBOT/Pruebas_Funcionales/analisis/analisis_latencia_m1.py
+
+--------------------------------------------------------------------------------
+5. SOLUCION DE PROBLEMAS HABITUALES
+--------------------------------------------------------------------------------
+- Puerto 8080 ocupado: Si tienes Apache/XAMPP abierto, cierralo o cambia el puerto en config.py.
+- Permiso denegado en Scripts de PowerShell: Ejecuta en PowerShell como Administrador:
+  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+- Puerto Serie no encontrado: Comprueba en el Administrador de Dispositivos el puerto COM asignado al ESP32 (por defecto COM9).
+================================================================================

@@ -1,0 +1,32 @@
+# ==============================================================================
+# REQUIREMENTS — Entorno Python para Teleoperación Robot RoArm-M2 (TFG)
+# Versión de Python recomendada: Python 3.11.x (o Python 3.10.x)
+# ==============================================================================
+
+# 1. Comunicación WebRTC y Servidor de Señalización
+aiortc==1.14.0
+av==16.1.0
+websockets==12.0
+aiohttp==3.13.5
+aioice==0.10.2
+pylibsrtp==1.0.0
+cryptography==48.0.0
+
+# 2. Control de Hardware y Comunicación Serie (UART Robot)
+pyserial==3.5
+
+# 3. Visión por Computador, Calibración Eye-in-Hand y Análisis 240 FPS
+opencv-python==5.0.0.93
+numpy==2.4.6
+pillow==12.2.0
+
+# 4. Análisis de Datos, Métricas M1-M4 y Gráficos Estadísticos
+pandas==3.0.3
+scipy==1.17.1
+matplotlib==3.10.9
+seaborn==0.13.2
+
+# 5. Dependencias de soporte asíncrono y utilidades
+typing_extensions==4.15.0
+python-dateutil==2.9.0.post0
+pyee==13.0.1
