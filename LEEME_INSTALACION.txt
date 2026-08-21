@@ -65,8 +65,9 @@ D) ANALISIS ESTADISTICO Y EXPORTACION DE METRICAS (M1 - M4)
 A) Iniciar Servidor de Señalizacion:
    python PC-ROBOT/Control_Brazo/signaling_server.py
 
-B) Iniciar Control del Robot con Registro Funcional (Ejemplo Condicion C1, Metrica M1):
-   python PC-ROBOT/Control_Brazo/safe8_WebRTC.py COM9 --ip 192.168.3.28 --operador OP1 --condicion C1_WIFI_SIN_CARGA --metrica M1
+B) Iniciar Control del Robot con Registro Funcional (Ejemplo Condicion C1, Metrica M1; el proyecto usa
+   siempre Ethernet + Clumsy, nunca Wi-Fi real, para las condiciones C1-C4):
+   python PC-ROBOT/Control_Brazo/safe8_WebRTC.py COM9 --ip 192.168.3.28 --operador OP1 --condicion C1_ETHERNET_SIN_CARGA --metrica M1
 
 C) Analizar Videos a Camara Lenta de 240 FPS (Calculo de Latencia M1):
    python PC-ROBOT/Pruebas_Funcionales/analisis/analisis_latencia_m1.py

@@ -704,9 +704,10 @@ def main():
         help="Identificador del operador para el registro funcional M1-M4 (default: OP1)"
     )
     parser.add_argument(
-        "--condicion", type=str, default="C1_WIFI_SIN_CARGA",
-        help="Condición de red evaluada para el registro funcional, ej. C4_ETHERNET, "
-             "C1_WIFI_SIN_CARGA, C2_WIFI_CARGA_MEDIA, C3_WIFI_CARGA_ALTA (default: C1_WIFI_SIN_CARGA)"
+        "--condicion", type=str, default="C1_ETHERNET_SIN_CARGA",
+        help="Condición de red evaluada para el registro funcional (siempre Ethernet + Clumsy, nunca Wi-Fi "
+             "real), ej. C1_ETHERNET_SIN_CARGA, C2_ETHERNET_CLUMSY_CARGA_MEDIA, C3_ETHERNET_CLUMSY_CARGA_ALTA, "
+             "C4_ETHERNET_CLUMSY_EXTRA (default: C1_ETHERNET_SIN_CARGA)"
     )
     parser.add_argument(
         "--intento", type=int, default=1,

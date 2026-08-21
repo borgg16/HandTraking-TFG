@@ -72,11 +72,30 @@ def detectar_inicio_movimiento_240fps(
     video_path: Path,
     roi: Optional[Tuple[int, int, int, int]] = None,
     lado_defecto: str = "izquierda",
-    sensibilidad_sigma: float = 3.5
+    sensibilidad_sigma: float = 5.0,
+    slack_k: float = 0.5,
+    ventana_suavizado: int = 5
 ) -> Optional[int]:
     """
-    Detecta el frame de inicio de movimiento adaptado a cámaras de 240 FPS.
-    Utiliza el análisis de actividad diferencial frente al estado basal de reposo.
+    Detecta el fotograma de inicio de movimiento adaptado a cámaras de 240 FPS, mediante CUSUM
+    (suma acumulada de control) sobre la velocidad fotograma-a-fotograma.
+
+    Un gesto humano, aunque se sienta "brusco" al hacerlo, nunca es un salto de posición: el brazo
+    acelera y decelera de forma continua a lo largo de ~150-300 ms (biomecánica normal), así que a
+    240 FPS la señal de actividad no da un escalón limpio, da una rampa suave. Un umbral fijo sobre
+    la diferencia acumulada respecto al primer fotograma (método anterior) es muy sensible a dónde
+    se ponga exactamente ese umbral cuando la señal es una rampa, y puede desplazar el "inicio"
+    detectado decenas de fotogramas de un lado a otro sin que cambie casi nada en el vídeo real.
+
+    Este método corrige eso de dos formas:
+    1. Mide la velocidad fotograma-a-fotograma (diferencia entre fotogramas consecutivos), no la
+       diferencia acumulada contra el fotograma 0, así que no arrastra deriva de todo lo que ya se
+       ha movido antes, solo lo que se está moviendo ahora mismo.
+    2. Usa CUSUM, un método estándar de control de procesos para detectar el inicio de un cambio
+       sostenido en una señal ruidosa: acumula evidencia de que la señal está por encima del ruido
+       de fondo (con un margen de tolerancia "slack" para no disparar con el ruido normal) y solo
+       marca el inicio cuando esa evidencia acumulada supera un umbral de decisión. Es más robusto
+       que un umbral instantáneo frente a señales que suben poco a poco en vez de dar un salto.
     """
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -105,33 +124,55 @@ def detectar_inicio_movimiento_240fps(
         rh = min(rh, h - ry)
         cropped_frames = [f[ry:ry+rh, rx:rx+rw] for f in frames_gray]
     else:
-        # Fallback espacial automático: mitad izquierda (mano/operador) o mitad derecha (robot)
+        # Fallback espacial automático: mitad izquierda (mano/operador) o mitad derecha (robot).
+        # ADVERTENCIA: esta partición incluye fondo, mesa y otros objetos que no son lo que se
+        # quiere medir, y añade ruido real a la detección. Usar --roi-mano/--roi-robot o
+        # --interactivo siempre que sea posible; este fallback es solo para pruebas rápidas.
+        log.warning(
+            f"No se especificó ROI para el lado '{lado_defecto}': usando la partición automática "
+            "de media pantalla (incluye fondo). Esto puede introducir ruido y variar bastante el "
+            "resultado. Usa --interactivo o --roi-mano/--roi-robot para una medida fiable."
+        )
         if lado_defecto == "izquierda":
             cropped_frames = [f[:, :w//2] for f in frames_gray]
         else:
             cropped_frames = [f[:, w//2:] for f in frames_gray]
 
-    # Calcular serie temporal de actividad respecto al fotograma de reposo inicial
     n_frames = len(cropped_frames)
     if n_frames < 25:
         return None
 
-    # Diferencia frame a frame y respecto al frame de reposo
-    frame_ref = cropped_frames[0]
-    actividad_rel = [float(np.mean(cv2.absdiff(f, frame_ref))) for f in cropped_frames]
+    # Velocidad fotograma-a-fotograma: diferencia contra el fotograma ANTERIOR, no contra el 0.
+    velocidad = np.array([
+        float(np.mean(cv2.absdiff(cropped_frames[i], cropped_frames[i - 1])))
+        for i in range(1, n_frames)
+    ])
 
-    # Calcular estadísticas del estado de reposo (primeros 20 fotogramas = ~83 ms)
-    n_base = min(20, n_frames // 4)
-    base_media = float(np.mean(actividad_rel[:n_base]))
-    base_std = float(np.std(actividad_rel[:n_base]))
-    umbral_dinamico = base_media + sensibilidad_sigma * max(base_std, 0.4)
+    # Suavizado por media móvil para reducir ruido de compresión/exposición fotograma a fotograma
+    if ventana_suavizado > 1 and len(velocidad) >= ventana_suavizado:
+        kernel = np.ones(ventana_suavizado) / ventana_suavizado
+        velocidad_suave = np.convolve(velocidad, kernel, mode="same")
+    else:
+        velocidad_suave = velocidad
 
-    # Localizar el primer frame que supera el umbral sostenidamente por 3 frames
-    for i in range(n_base, n_frames - 3):
-        if (actividad_rel[i] > umbral_dinamico and
-            actividad_rel[i+1] > umbral_dinamico and
-            actividad_rel[i+2] > umbral_dinamico):
-            return i
+    # Estadísticas de reposo (primeros 20 fotogramas = ~83 ms) sobre la velocidad, no sobre la
+    # diferencia acumulada
+    n_base = min(20, len(velocidad_suave) // 4)
+    base_media = float(np.mean(velocidad_suave[:n_base]))
+    base_std = float(np.std(velocidad_suave[:n_base]))
+    base_std = max(base_std, 0.05)
+    slack = slack_k * base_std
+    umbral_decision = sensibilidad_sigma * base_std
+
+    # CUSUM: acumula (velocidad - media_reposo - margen_slack) mientras sea positivo, se resetea a
+    # 0 si la señal vuelve al ruido de fondo. Dispara en el primer fotograma donde la suma
+    # acumulada supera el umbral de decisión.
+    S = 0.0
+    for i in range(1, len(velocidad_suave)):
+        S = max(0.0, S + (velocidad_suave[i] - base_media - slack))
+        if i >= n_base and S > umbral_decision:
+            # +1 porque velocidad[i] compara cropped_frames[i+1] contra cropped_frames[i]
+            return i + 1
 
     return None
 
@@ -192,7 +233,8 @@ def main():
     parser.add_argument("--fps", type=float, default=None,
                         help="Tasa de FPS manual (default: extraído del vídeo, ~240.32)")
     parser.add_argument("--salida-csv", type=str, default=None,
-                        help="Ruta personalizada para el archivo CSV de salida")
+                        help="Carpeta personalizada donde guardar los CSV de salida (por defecto: "
+                             "resultados/M1/latencias_resultados/)")
 
     args = parser.parse_args()
 
@@ -254,15 +296,18 @@ def main():
         resultados.append(res)
         log.info(f" -> {v.name}: f_mano={res['f_mano']}, f_robot={res['f_robot']}, L_control={res['L_control_ms']} ms ({res['fps']} FPS)")
 
-        # Guardar CSV individual
-        csv_indiv = RESULTADOS_DIR / f"latencia_m1_{cond}.csv"
+        # Guardar CSV individual (respeta --salida-csv si se indica una carpeta de salida distinta)
+        destino_dir = Path(args.salida_csv) if args.salida_csv else RESULTADOS_DIR
+        destino_dir.mkdir(parents=True, exist_ok=True)
+        csv_indiv = destino_dir / f"latencia_m1_{cond}.csv"
         with open(csv_indiv, mode="w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=["video", "f_mano", "f_robot", "fps", "L_control_ms", "condicion"])
             writer.writeheader()
             writer.writerow(res)
 
-    # Guardar tabla resumen consolidada
-    csv_resumen = RESULTADOS_DIR / "tabla_resumen_latencia_m1.csv"
+    # Guardar tabla resumen consolidada (misma carpeta de destino que los CSV individuales)
+    destino_dir = Path(args.salida_csv) if args.salida_csv else RESULTADOS_DIR
+    csv_resumen = destino_dir / "tabla_resumen_latencia_m1.csv"
     with open(csv_resumen, mode="w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["video", "f_mano", "f_robot", "fps", "L_control_ms", "condicion"])
         writer.writeheader()
