@@ -7,6 +7,7 @@ import os
 import re
 import time
 import argparse
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -14,10 +15,11 @@ import cv2
 import numpy as np
 import serial
 import websockets
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Configuracion")))
+CURRENT_DIR = Path(__file__).resolve().parent
+PC_ROBOT_DIR = CURRENT_DIR.parents[1]
+sys.path.append(str(PC_ROBOT_DIR / "Configuracion"))
+sys.path.append(str(PC_ROBOT_DIR))
 import config
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from Pruebas_Funcionales.registro.csv_funcional import RegistradorFuncional
 from aiortc import (
     RTCConfiguration,
@@ -315,7 +317,7 @@ async def ejecutar_webrtc(args):
     # queda establecido con Unity y se cierra al terminar ejecutar_webrtc()
     # (bloque finally), tanto si la sesión acaba bien como por error/Ctrl+C.
     # Se organiza en subcarpetas según la métrica (ej. resultados/M1/csv_grabaciones, resultados/M2/csv_grabaciones...)
-    ruta_salida = Path(__file__).resolve().parents[1] / "Pruebas_Funcionales" / "resultados" / args.metrica / "csv_grabaciones"
+    ruta_salida = Path(__file__).resolve().parents[2] / "Pruebas_Funcionales" / "resultados" / args.metrica / "csv_grabaciones"
     registrador = RegistradorFuncional(output_dir=ruta_salida)
 
     min_dt = 1.0 / args.freq if args.freq > 0 else 0.0
@@ -376,13 +378,14 @@ async def ejecutar_webrtc(args):
                     #---- DataChannel: Unity lo crea ("comandos"), Python lo recibe aquí ----
                     # Es bidireccional: Unity envia coordenadas, python devuelve la posicion del brazo
                     # on_datachannel se define UNA sola vez y se re-registra en cada PC nueva
-                    # (ver bloque "offer"): no depende de la PC concreta, solo de 'ser'/'channel'.
                     data_channel = None
+                    pinza_bloqueada = False
 
                     def on_datachannel(channel):
-                        nonlocal data_channel
+                        nonlocal data_channel, pinza_bloqueada
                         data_channel = channel
-                        log.info(f"DataChannel '{channel.label}' establecido --- control activo.")
+                        pinza_bloqueada = False
+                        log.info(f"DataChannel '{channel.label}' establecido --- control activo [Variante M2/M3: Pinza Fija tras primer pellizco].")
 
                         # Nueva sesión de registro funcional cada vez que se abre el
                         # DataChannel (una reconexión de las gafas = una sesión nueva,
@@ -395,7 +398,7 @@ async def ejecutar_webrtc(args):
 
                         @channel.on("message")
                         def on_message(msg):
-                            nonlocal last_send, ser
+                            nonlocal last_send, ser, pinza_bloqueada
 
                             # t_robot_recepcion (registro funcional M1-M4): se toma
                             # aquí, nada más entrar, para que sea lo más fiel posible
@@ -463,9 +466,17 @@ async def ejecutar_webrtc(args):
                                 log.warning(f"Coordenadas no finitas recibidas: x={norm_x}, y={norm_y}, z={norm_z}, g={gripper}")
                                 return
 
-                            # 5. Desnormalizar y enviar al robot
+                            # 5. Bloqueo de pinza fija tras el primer pellizco (M2/M3)
+                            if gripper < 0.3:
+                                if not pinza_bloqueada:
+                                    log.info(">> [PINZA FIJA] Primer pellizco detectado: Pinza bloqueada en posicion CERRADA.")
+                                pinza_bloqueada = True
+
+                            gripper_efectivo = 0.0 if pinza_bloqueada else gripper
+
+                            # 6. Desnormalizar y enviar al robot
                             x_cm, y_cm, z_cm, t = desnormalizar(
-                                norm_x, norm_y, norm_z, gripper)
+                                norm_x, norm_y, norm_z, gripper_efectivo)
                             x_safe = clamp(x_cm, X_MIN, X_MAX)
                             y_safe = clamp(y_cm, Y_MIN, Y_MAX)
                             z_safe = clamp(z_cm, Z_MIN, Z_MAX)
