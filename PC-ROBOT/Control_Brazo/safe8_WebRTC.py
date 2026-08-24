@@ -50,7 +50,12 @@ Y_MIN, Y_MAX = -40.0, 40.0
 Z_MIN, Z_MAX = -10.0, 50.0
 
 # Configuración de la pinza (ángulo t)
-T_OPEN   = 0.5     # pinza completamente abierta
+# T_OPEN reducido de 0.5 (valor original) a 0.35 tras exploración empírica con
+# explorar_apertura_pinza.py: el límite mecánico real está en torno a 0.15,
+# por lo que 0.5 dejaba margen sin usar. Con 0.5 la pelota de ping-pong (N3,
+# Ø40mm) no se podía agarrar (sin margen de error). 0.35 da margen suficiente
+# sin abrir tanto como para perder precisión de agarre en el resto de objetos.
+T_OPEN   = 0.35    # pinza abierta (ver nota arriba)
 T_CLOSED = 1.4     # pinza cerrada (aprox. 80°)
 
 # Resolución y FPS de la cámara del brazo que se transmite a Unity.
