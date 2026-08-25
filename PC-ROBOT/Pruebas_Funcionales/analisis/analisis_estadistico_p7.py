@@ -129,7 +129,12 @@ def cargar_datos_m2_m3(repo_root: Path) -> Tuple[Dict[str, List[float]], Dict[st
             for cond, sname in sheet_m2_map.items():
                 if sname in wb.sheetnames:
                     ws = wb[sname]
-                    for r in range(11, 38):
+                    # Filas 12-38 = las 27 dianas reales (3 vueltas x 9 dianas).
+                    # La fila 11 es la cabecera de texto ("e_x profundidad (mm)..."),
+                    # no un dato: el rango anterior (11, 38) la incluía por error y
+                    # dejaba fuera la fila 38 (última diana real), dando N=26 en vez
+                    # de N=27. Corregido 25/08/2026 tras auditoría de datos.
+                    for r in range(12, 39):
                         ex = ws.cell(row=r, column=3).value
                         ey = ws.cell(row=r, column=4).value
                         if ex is not None and ey is not None:
@@ -269,15 +274,16 @@ def generar_tabla_y_graficos(
         m2_str = f"{np.mean(v_m2):.2f} ± {np.std(v_m2, ddof=1):.2f} cm (N={len(v_m2)})" if v_m2 else "N/D"
 
         # M3: Repetibilidad 2D
-        v_m3 = res_m3_xy[c]
+        # OJO: M3 solo se midió una vez (una única sesión, no por condición de red),
+        # así que solo C1 tiene un rp_val real. El "elif" que había aquí antes caía,
+        # para C2/C3, a calcular la dispersión de res_m3_xy -- que en realidad es
+        # pares_xy, poblado con datos de M2 (ver cargar_datos_m2_m3), no de M3. Eso
+        # metía cifras reales pero de la métrica equivocada bajo la etiqueta "M3".
+        # Corregido 25/08/2026 tras auditoría de datos: sin dato real de M3 para esa
+        # condición, se informa N/D en vez de sustituirlo por otra métrica.
         rp_val = res_m3_iso.get(c, 0.0)
         if rp_val > 0:
             m3_str = f"{rp_val:.2f} cm (ISO 9283 Rp)"
-        elif len(v_m3) > 1:
-            exs = [p[0] for p in v_m3]
-            eys = [p[1] for p in v_m3]
-            sigma_2d = math.sqrt(np.var(exs, ddof=1) + np.var(eys, ddof=1))
-            m3_str = f"{sigma_2d:.2f} cm (σ 2D)"
         else:
             m3_str = "N/D"
 
