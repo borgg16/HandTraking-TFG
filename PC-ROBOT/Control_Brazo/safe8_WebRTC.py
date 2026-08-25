@@ -5,6 +5,7 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 import argparse
 from datetime import datetime
@@ -295,6 +296,43 @@ class CameraVideoTrack(MediaStreamTrack):
             self.cap.release()
         super().stop()
 
+# =================== REGISTRO M4: SIGUIENTE INTENTO SIN RECONECTAR =====================
+def escuchar_nuevos_intentos(registrador):
+    """
+    Hilo en segundo plano (solo para --metrica M4). Permite al observador marcar
+    "empieza un intento nuevo" sin reiniciar la conexión WebRTC completa, algo
+    que antes obligaba a cortar y reabrir toda la sesión para cada uno de los
+    intentos de M4 y por eso id_intento se quedaba fijo a 1 durante toda una
+    condición de red (ver hallazgo del 25/08/2026: "Nº correcciones" no se pudo
+    recuperar de los CSV de M4 por este motivo).
+
+    Uso desde el terminal donde corre este script, mientras la sesión está activa:
+      - Pulsar Enter (línea vacía)  -> incrementa id_intento en 1.
+      - Escribir "obj N1"/"N2"/"N3" -> cambia nivel_objeto para los intentos siguientes.
+      - Ctrl+D / Ctrl+Z             -> termina el hilo sin afectar a la sesión WebRTC.
+
+    No toca la conexión, la cámara ni el envío de comandos al robot: solo actualiza
+    los metadatos que RegistradorFuncional añade a cada fila del CSV.
+    """
+    log.info("Registro de intentos M4 activo: pulsa Enter para marcar 'siguiente intento', "
+              "o escribe 'obj N1'/'obj N2'/'obj N3' para cambiar de objeto.")
+    while True:
+        try:
+            linea = input()
+        except (EOFError, OSError):
+            break
+
+        linea = linea.strip()
+        if not linea:
+            nuevo = registrador.id_intento + 1
+            registrador.set_intento(nuevo)
+            log.info(f"[Registro M4] Nuevo intento marcado -> id_intento={nuevo}")
+        elif linea.lower().startswith("obj "):
+            nivel = linea[4:].strip().upper()
+            if nivel:
+                registrador.nivel_objeto = nivel
+                log.info(f"[Registro M4] Objeto actualizado -> nivel_objeto={nivel}")
+
 # =================== WEBRTC =====================
 async def ejecutar_webrtc(args):
     """
@@ -322,6 +360,15 @@ async def ejecutar_webrtc(args):
     # Se organiza en subcarpetas según la métrica (ej. resultados/M1/csv_grabaciones, resultados/M2/csv_grabaciones...)
     ruta_salida = Path(__file__).resolve().parents[1] / "Pruebas_Funcionales" / "resultados" / args.metrica / "csv_grabaciones"
     registrador = RegistradorFuncional(output_dir=ruta_salida)
+
+    # Solo para M4 (pick-and-place): permite marcar "siguiente intento" con Enter
+    # sin reiniciar la conexión, ver escuchar_nuevos_intentos() más arriba.
+    if args.metrica == "M4":
+        threading.Thread(
+            target=escuchar_nuevos_intentos,
+            args=(registrador,),
+            daemon=True
+        ).start()
 
     min_dt = 1.0 / args.freq if args.freq > 0 else 0.0
     last_send = 0.0
