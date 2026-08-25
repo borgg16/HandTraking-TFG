@@ -57,6 +57,8 @@ D) ANALISIS ESTADISTICO Y EXPORTACION DE METRICAS (M1 - M4)
    - pandas (3.0.3): Procesamiento y estructuracion de ficheros CSV de telemetria.
    - scipy (1.17.1): Pruebas estadisticas no parametricas (Kruskal-Wallis, Mann-Whitney U, Wilcoxon).
    - matplotlib (3.10.9) y seaborn (0.13.2): Generacion de graficas, curvas de aprendizaje y dispersion.
+   - openpyxl (3.1.5): Lectura y exportacion de hojas de calculo Excel (.xlsx).
+
 
 --------------------------------------------------------------------------------
 4. COMANDOS PRINCIPALES DE EJECUCION

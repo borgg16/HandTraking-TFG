@@ -20,11 +20,13 @@ opencv-python==5.0.0.93
 numpy==2.4.6
 pillow==12.2.0
 
-# 4. Análisis de Datos, Métricas M1-M4 y Gráficos Estadísticos
+# 4. Análisis de Datos, Métricas M1-M4, Excel y Gráficos Estadísticos
 pandas==3.0.3
 scipy==1.17.1
 matplotlib==3.10.9
 seaborn==0.13.2
+openpyxl==3.1.5
+et_xmlfile==2.0.0
 
 # 5. Dependencias de soporte asíncrono y utilidades
 typing_extensions==4.15.0
