@@ -57,8 +57,8 @@ X_MIN, X_MAX = 5.0, 40.0
 Y_MIN, Y_MAX = -40.0, 40.0
 Z_MIN, Z_MAX = -10.0, 50.0
 
-T_OPEN   = 0.5   # Pinza abierta
-T_CLOSED = 1.4   # Pinza cerrada
+T_OPEN   = 0.35   # Pinza abierta (ajustado a 0.35 rad para mayor campo visual)
+T_CLOSED = 1.40   # Pinza cerrada
 
 CAM_WIDTH, CAM_HEIGHT = 640, 480
 CAM_FPS = 30
@@ -152,7 +152,7 @@ def dibujar_reticulo_camara(frame, reticulo_activo):
 
     return frame
 
-def construir_panel_lateral(pos_actual, nombre_postura, pinza_abierta, reticulo_activo, fps):
+def construir_panel_lateral(pos_actual, nombre_postura, pinza_abierta, reticulo_activo, fps, t_open=0.35, t_closed=1.40):
     panel = np.zeros((CAM_HEIGHT, PANEL_WIDTH, 3), dtype=np.uint8)
     panel[:] = (26, 26, 26)  # Fondo oscuro elegante
 
@@ -165,75 +165,76 @@ def construir_panel_lateral(pos_actual, nombre_postura, pinza_abierta, reticulo_
     GRIS_CLARO = (190, 190, 190)
 
     # 1. Cabecera
-    cv2.rectangle(panel, (0, 0), (PANEL_WIDTH, 42), (40, 40, 40), -1)
-    cv2.putText(panel, "CALIBRACION EYE-IN-HAND (P0.6)", (12, 27),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.52, CIAN, 2, cv2.LINE_AA)
+    cv2.rectangle(panel, (0, 0), (PANEL_WIDTH, 46), (35, 35, 35), -1)
+    cv2.putText(panel, "CALIBRACION EYE-IN-HAND", (12, 22),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.50, CIAN, 1, cv2.LINE_AA)
+    cv2.putText(panel, "Alineacion visual y rango de vision", (12, 38),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.36, GRIS_CLARO, 1, cv2.LINE_AA)
+    cv2.line(panel, (0, 46), (PANEL_WIDTH, 46), (60, 60, 60), 1)
 
-    # Separador
-    cv2.line(panel, (0, 42), (PANEL_WIDTH, 42), (60, 60, 60), 1)
-
-    y = 62
-    # 2. Estado actual
-    cv2.putText(panel, "ESTADO ACTUAL DEL ROBOT", (12, y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.44, MAGENTA, 1, cv2.LINE_AA)
-    y += 20
-    px, py, pz = pos_actual
+    y = 66
+    # 2. Estado Actual del Robot
+    cv2.putText(panel, "ESTADO DEL ROBOT:", (12, y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.44, CIAN, 1, cv2.LINE_AA)
+    y += 18
     cv2.putText(panel, f"Postura: {nombre_postura}", (16, y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.40, AMARILLO, 1, cv2.LINE_AA)
+    y += 18
+    cv2.putText(panel, f"Posicion: X={pos_actual[0]:.1f}, Y={pos_actual[1]:.1f}, Z={pos_actual[2]:.1f} cm", (16, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.40, BLANCO, 1, cv2.LINE_AA)
     y += 18
-    cv2.putText(panel, f"Coord: X={px:.1f}  Y={py:.1f}  Z={pz:.1f} cm", (16, y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.40, GRIS_CLARO, 1, cv2.LINE_AA)
-    y += 18
-    estado_pinza = "ABIERTA (0.5 rad)" if pinza_abierta else "CERRADA (1.4 rad)"
-    color_pinza = VERDE if pinza_abierta else AMARILLO
+    estado_pinza = f"ABIERTA (t={t_open:.2f} rad)" if pinza_abierta else f"CERRADA (t={t_closed:.2f} rad)"
+    color_pinza = VERDE if pinza_abierta else (0, 165, 255)
     cv2.putText(panel, f"Pinza: {estado_pinza}", (16, y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.40, color_pinza, 1, cv2.LINE_AA)
+                cv2.FONT_HERSHEY_SIMPLEX, 0.38, color_pinza, 1, cv2.LINE_AA)
     y += 18
     ret_txt = "ACTIVO" if reticulo_activo else "OCULTO"
-    cv2.putText(panel, f"Retículo: {ret_txt} | {fps:.0f} FPS", (16, y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.40, GRIS, 1, cv2.LINE_AA)
+    cv2.putText(panel, f"Reticulo: {ret_txt} | {fps:.0f} FPS", (16, y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.38, GRIS, 1, cv2.LINE_AA)
 
     # Separador
-    y += 12
+    y += 10
     cv2.line(panel, (12, y), (PANEL_WIDTH - 12, y), (50, 50, 50), 1)
-    y += 18
+    y += 16
 
     # 3. ¿Qué se debe buscar? (Criterios de calibración)
     cv2.putText(panel, "OBJETIVO DE CALIBRACION:", (12, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.44, AMARILLO, 1, cv2.LINE_AA)
-    y += 18
+    y += 16
     criterios = [
         ("1. Cruz verde:", "Centro exacto de la camara"),
         ("2. Guia mordazas (50%):", "Puntas pinza tocan la linea"),
         ("3. Guia mesa (86%):", "Base objetos sobre la mesa"),
-        ("4. Simetria pinza:", "Centrada al abrir/cerrar [G]")
+        ("4. Apertura visual:", f"[+/-] Ajustar apertura ({t_open:.2f} rad)")
     ]
     for tit, desc in criterios:
-        cv2.putText(panel, tit, (16, y), cv2.FONT_HERSHEY_SIMPLEX, 0.38, VERDE, 1, cv2.LINE_AA)
-        y += 14
-        cv2.putText(panel, f"   {desc}", (16, y), cv2.FONT_HERSHEY_SIMPLEX, 0.35, GRIS_CLARO, 1, cv2.LINE_AA)
-        y += 16
+        cv2.putText(panel, tit, (16, y), cv2.FONT_HERSHEY_SIMPLEX, 0.36, VERDE, 1, cv2.LINE_AA)
+        y += 13
+        cv2.putText(panel, f"   {desc}", (16, y), cv2.FONT_HERSHEY_SIMPLEX, 0.34, GRIS_CLARO, 1, cv2.LINE_AA)
+        y += 15
 
     # Separador
     y += 2
     cv2.line(panel, (12, y), (PANEL_WIDTH - 12, y), (50, 50, 50), 1)
-    y += 18
+    y += 16
 
     # 4. Teclas y Controles
     cv2.putText(panel, "CONTROLES POR TECLADO:", (12, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.44, CIAN, 1, cv2.LINE_AA)
-    y += 18
+    y += 16
     controles = [
         ("[1] Centro (Z=15)", "[2] Mesa (Z=10)"),
         ("[3] Reposo (Z=20)", "[4] Frontal (X=30)"),
         ("[5] Lateral Izq",   "[6] Lateral Der"),
         ("[G] Pinza Abr/Cer", "[R] Reticulo ON/OFF"),
-        ("[S/ESPACIO] Foto",  "[Q/ESC] Salir y Reposo")
+        ("[+/-] Apertura t",  "[S/ESPACIO] Foto"),
+        ("[Q/ESC] Salir y Reposo", "")
     ]
     for c1, c2 in controles:
-        cv2.putText(panel, c1, (16, y), cv2.FONT_HERSHEY_SIMPLEX, 0.36, BLANCO, 1, cv2.LINE_AA)
-        cv2.putText(panel, c2, (PANEL_WIDTH // 2 + 5, y), cv2.FONT_HERSHEY_SIMPLEX, 0.36, BLANCO, 1, cv2.LINE_AA)
-        y += 17
+        cv2.putText(panel, c1, (16, y), cv2.FONT_HERSHEY_SIMPLEX, 0.35, BLANCO, 1, cv2.LINE_AA)
+        if c2:
+            cv2.putText(panel, c2, (PANEL_WIDTH // 2 + 5, y), cv2.FONT_HERSHEY_SIMPLEX, 0.35, BLANCO, 1, cv2.LINE_AA)
+        y += 15
 
     return panel
 
@@ -242,12 +243,17 @@ def main():
     parser.add_argument("--puerto", type=str, default="COM9", help="Puerto serie (default: COM9)")
     parser.add_argument("--baudrate", type=int, default=DEFAULT_BAUDRATE, help="Baudrate (default: 115200)")
     parser.add_argument("--camera", type=int, default=DEFAULT_CAMERA_INDEX, help="Cámara (default: 0)")
+    parser.add_argument("--t-open", type=float, default=T_OPEN, help=f"Ángulo de apertura pinza en rad (default: {T_OPEN})")
+    parser.add_argument("--t-closed", type=float, default=T_CLOSED, help=f"Ángulo de cierre pinza en rad (default: {T_CLOSED})")
     parser.add_argument("--output-dir", "--carpeta-salida", type=str, default=str(CARPETA_SALIDA_DEFECTO),
                         help=f"Carpeta donde se guardarán las fotos de calibración (default: {CARPETA_SALIDA_DEFECTO})")
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    t_open_actual = args.t_open
+    t_closed_actual = args.t_closed
 
     ser = crear_conexion_serial(args.puerto, args.baudrate)
     pos_actual = (20.0, 0.0, 20.0)
@@ -258,8 +264,8 @@ def main():
     # Mover a postura estándar de calibración
     postura_inicial = (20.0, 0.0, 15.0)
     if ser:
-        log.info(f"Colocando robot en postura inicial: {postura_inicial}")
-        pos_actual = mover_a_posicion(ser, pos_actual, postura_inicial, t_rad=T_OPEN)
+        log.info(f"Colocando robot en postura inicial: {postura_inicial} con t_open={t_open_actual:.2f} rad")
+        pos_actual = mover_a_posicion(ser, pos_actual, postura_inicial, t_rad=t_open_actual)
 
     log.info(f"Abriendo cámara índice {args.camera}...")
     cap = cv2.VideoCapture(args.camera, cv2.CAP_DSHOW)
@@ -269,7 +275,7 @@ def main():
     if not cap.isOpened():
         log.error(f"No se pudo acceder a la cámara {args.camera}.")
         if ser:
-            mover_a_posicion(ser, pos_actual, (20.0, 0.0, 20.0))
+            mover_a_posicion(ser, pos_actual, (20.0, 0.0, 20.0), t_rad=t_open_actual)
             ser.close()
         sys.exit(1)
 
@@ -281,7 +287,7 @@ def main():
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(window_name, TOTAL_WIDTH, TOTAL_HEIGHT)
 
-    log.info("Ventana de calibración lateral abierta.")
+    log.info(f"Ventana de calibración lateral abierta (Apertura: {t_open_actual:.2f} rad).")
     prev_time = time.time()
     fps = 30.0
 
@@ -305,7 +311,8 @@ def main():
 
             # 2. Construir panel lateral con controles y objetivos
             panel_lateral = construir_panel_lateral(
-                pos_actual, nombre_postura, pinza_abierta, reticulo_activo, fps
+                pos_actual, nombre_postura, pinza_abierta, reticulo_activo, fps,
+                t_open=t_open_actual, t_closed=t_closed_actual
             )
 
             # 3. Concatenar horizontalmente (Vídeo + Panel)
@@ -321,13 +328,13 @@ def main():
 
             elif key in POSTURAS and ser: # Posturas 1-6
                 nombre_postura, target_pos = POSTURAS[key]
-                t_rad = T_OPEN if pinza_abierta else T_CLOSED
+                t_rad = t_open_actual if pinza_abierta else t_closed_actual
                 log.info(f"Moviendo a {nombre_postura}: {target_pos}")
                 pos_actual = mover_a_posicion(ser, pos_actual, target_pos, t_rad=t_rad)
 
             elif key in [ord('g'), ord('G')] and ser: # Pinza
                 pinza_abierta = not pinza_abierta
-                t_rad = T_OPEN if pinza_abierta else T_CLOSED
+                t_rad = t_open_actual if pinza_abierta else t_closed_actual
                 cmd = {
                     "T": 1041,
                     "x": int(pos_actual[0] * 10),
@@ -336,7 +343,33 @@ def main():
                     "t": round(t_rad * 5, 1)
                 }
                 enviar_comando_serial(ser, cmd)
-                log.info(f"Pinza: {'ABIERTA' if pinza_abierta else 'CERRADA'}")
+                log.info(f"Pinza: {'ABIERTA' if pinza_abierta else 'CERRADA'} (t={t_rad:.2f} rad)")
+
+            elif key in [ord('+'), ord('=')] and ser: # Abrir más la pinza (bajar t)
+                t_open_actual = max(0.20, round(t_open_actual - 0.02, 2))
+                if pinza_abierta:
+                    cmd = {
+                        "T": 1041,
+                        "x": int(pos_actual[0] * 10),
+                        "y": int(pos_actual[1] * 10),
+                        "z": int(pos_actual[2] * 10),
+                        "t": round(t_open_actual * 5, 1)
+                    }
+                    enviar_comando_serial(ser, cmd)
+                log.info(f"Apertura pinza ajustada (+ abierta): t_open = {t_open_actual:.2f} rad")
+
+            elif key in [ord('-'), ord('_')] and ser: # Cerrar un poco la apertura (subir t)
+                t_open_actual = min(1.0, round(t_open_actual + 0.02, 2))
+                if pinza_abierta:
+                    cmd = {
+                        "T": 1041,
+                        "x": int(pos_actual[0] * 10),
+                        "y": int(pos_actual[1] * 10),
+                        "z": int(pos_actual[2] * 10),
+                        "t": round(t_open_actual * 5, 1)
+                    }
+                    enviar_comando_serial(ser, cmd)
+                log.info(f"Apertura pinza ajustada (- abierta): t_open = {t_open_actual:.2f} rad")
 
             elif key in [ord('r'), ord('R')]: # Retículo
                 reticulo_activo = not reticulo_activo
@@ -354,7 +387,7 @@ def main():
         cv2.destroyAllWindows()
         if ser:
             log.info("Regresando a posición segura de reposo (20, 0, 20)...")
-            mover_a_posicion(ser, pos_actual, (20.0, 0.0, 20.0), t_rad=T_OPEN)
+            mover_a_posicion(ser, pos_actual, (20.0, 0.0, 20.0), t_rad=t_open_actual)
             ser.close()
             log.info("Puerto serie cerrado.")
 
