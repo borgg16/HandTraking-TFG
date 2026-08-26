@@ -1,0 +1,2 @@
+metrica,archivo,condicion,operador,comandos,duracion_s,frecuencia_hz,distancia_cm,eje_dominante,rango_cm,correcciones,tasa_correccion_por_min
+M3,funcional_C1_ETHERNET_SIN_CARGA_OP1_20260822_003400.csv,C1_ETHERNET_SIN_CARGA,OP1,2213,222.77,9.93,1017.56,X,29.47,354,95.35

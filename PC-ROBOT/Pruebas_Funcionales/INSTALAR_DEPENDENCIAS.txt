@@ -1,0 +1,4 @@
+# Dependencias para el entorno virtual del robot (venv_robot)
+# Ejecutar en la terminal del PC del robot (con el entorno activado):
+
+pip install aiortc pyserial opencv-python numpy scipy pandas matplotlib statsmodels av aiohttp websockets openpyxl

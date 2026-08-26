@@ -1,0 +1,5 @@
+Condicion,Latencia_G2G_Base_ms,M1_Latencia_G2G_Manual,M2_Precision_Radial,M3_Repetibilidad_2D,M4_Tiempo_PickAndPlace,M4_Tasa_Exito
+C4 Ethernet (Sin Carga),2.7,34.2 ± 5.4 ms (N=15),N/D,N/D,N/D,N/D
+C1 WiFi (Sin Carga),5.7,38.0 ± 21.5 ms (N=18),1.90 ± 1.17 cm (N=27),3.42 cm (ISO 9283 Rp),30.2 ± 6.8 s (N=5),50.0% (5/10)
+C2 WiFi (Carga Media),9.4,34.5 ± 18.5 ms (N=17),1.56 ± 0.93 cm (N=27),N/D,44.8 ± 14.3 s (N=5),50.0% (5/10)
+C3 WiFi (Carga Alta),13.7,38.1 ± 18.8 ms (N=18),1.86 ± 0.89 cm (N=27),N/D,45.8 ± 9.7 s (N=4),40.0% (4/10)

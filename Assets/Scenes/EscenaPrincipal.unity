@@ -6159,6 +6159,9 @@ MonoBehaviour:
   ipRobot: 192.168.3.28
   puertoWebRTC: 8080
   sessionToken: TFG_Secret_Token_2026
+  maxIntentosReconexion: 8
+  delayReconexionInicialMs: 1000
+  delayReconexionMaximoMs: 30000
   imagenVideo: {fileID: 1536436817}
 --- !u!4 &1706806974
 Transform:

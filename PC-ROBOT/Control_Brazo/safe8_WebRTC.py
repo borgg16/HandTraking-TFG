@@ -5,9 +5,11 @@ import logging
 import math
 import os
 import re
+import threading
 import time
 import argparse
 from datetime import datetime
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -16,6 +18,8 @@ import websockets
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "Configuracion")))
 import config
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from Pruebas_Funcionales.registro.csv_funcional import RegistradorFuncional
 from aiortc import (
     RTCConfiguration,
     RTCIceServer,
@@ -47,13 +51,45 @@ Y_MIN, Y_MAX = -40.0, 40.0
 Z_MIN, Z_MAX = -10.0, 50.0
 
 # Configuración de la pinza (ángulo t)
-T_OPEN   = 0.5     # pinza completamente abierta
+# T_OPEN reducido de 0.5 (valor original) a 0.35 tras exploración empírica con
+# explorar_apertura_pinza.py: el límite mecánico real está en torno a 0.15,
+# por lo que 0.5 dejaba margen sin usar. Con 0.5 la pelota de ping-pong (N3,
+# Ø40mm) no se podía agarrar (sin margen de error). 0.35 da margen suficiente
+# sin abrir tanto como para perder precisión de agarre en el resto de objetos.
+T_OPEN   = 0.35    # pinza abierta (ver nota arriba)
 T_CLOSED = 1.4     # pinza cerrada (aprox. 80°)
 
-# Resolución y FPS de la cámara del brazo que se transmite a Unity
-CAM_WIDTH = 640
-CAM_HEIGHT = 480
+# Resolución y FPS de la cámara del brazo que se transmite a Unity.
+# Por defecto 640x480 (4:3): es el formato con el que se han realizado el resto
+# de pruebas de vídeo del TFG (glass-to-glass, análisis de red), así los
+# resultados de las pruebas funcionales son comparables con los ya medidos.
+# El modo 16:9 (captura nativa 1280x720 -> salida 640x360 reescalada, para
+# aprovechar el FOV completo del sensor) queda disponible pero DESACTIVADO por
+# defecto; se activa con la variable de entorno MODO_16_9=1
+# (ver Pruebas_Funcionales/captura/captura_16_9.py).
+MODO_16_9 = os.environ.get("MODO_16_9", "0") == "1"
+
+if MODO_16_9:
+    CAM_WIDTH, CAM_HEIGHT = 640, 360            # resolución de salida al stream (16:9)
+    CAPTURA_WIDTH, CAPTURA_HEIGHT = 1280, 720   # captura nativa del sensor
+else:
+    CAM_WIDTH, CAM_HEIGHT = 640, 480            # resolución de salida al stream (4:3)
+    CAPTURA_WIDTH, CAPTURA_HEIGHT = CAM_WIDTH, CAM_HEIGHT
 CAM_FPS = 30
+
+# Overlay de montaje (fase P0.6): cruz de referencia sobre el vídeo eye-in-hand
+# para apuntar la cámara con precisión (vertical central entre las mordazas).
+# Solo para el montaje físico; debe estar DESACTIVADO durante las pruebas reales.
+# Se activa con la variable de entorno MOSTRAR_RETICULO=1
+# (ver Pruebas_Funcionales/captura/reticulo_overlay.py).
+MOSTRAR_RETICULO = os.environ.get("MOSTRAR_RETICULO", "0") == "1"
+
+# Filas guía del retículo como FRACCIÓN de la altura del frame, para que valgan
+# con cualquier resolución. Encuadre de referencia del TFG (definido en 640x360):
+#   puntas de las mordazas -> fila 180 px = 50% de la altura (en 640x480: fila 240)
+#   base del objeto / línea de mesa -> fila 310 px = 86% de la altura (en 640x480: fila 413)
+RETICULO_FRAC_MORDAZAS = 0.50
+RETICULO_FRAC_MESA = 0.86
 
 # =============== UTILIDADES =========================
 def clamp(v, vmin, vmax):
@@ -75,6 +111,7 @@ def desnormalizar(norm_x, norm_y, norm_z, gripper):
     # norm_z = 0 -> brazo recogido -> X del robot pequeño
     # norm_z = 1 -> brazo estirado -> X del robot grande
     x_robot = X_MIN + norm_z *  (X_MAX - X_MIN)
+
     # norm_x = 0.5 -> centro -> Y del robot = 0
     # norm_x = 0 -> izquierda -> Y positiva (Y_MAX)
     # norm_x = 1 -> derecha -> Y negativa (Y_MIN)
@@ -142,6 +179,31 @@ def enviar_comando_serial(ser, data):
         return None
 
 # ==================== VIDEO TRACK ===================
+def dibujar_reticulo(frame_bgr):
+    """
+    Dibuja sobre un frame BGR el overlay de montaje de la cámara (fase P0.6):
+
+      - Cruz verde centrada (vertical en x = w//2, horizontal en y = h//2), 1 px.
+      - Líneas horizontales amarillas en las filas guía: puntas de las mordazas
+        (RETICULO_FRAC_MORDAZAS) y línea de mesa (RETICULO_FRAC_MESA).
+
+    Se usan las dimensiones REALES del frame (frame.shape) y no las constantes
+    CAM_WIDTH/CAM_HEIGHT, porque cv2.VideoCapture.set() es solo una petición al
+    driver: si la cámara negocia otra resolución, el retículo sigue centrado.
+    """
+    h, w = frame_bgr.shape[:2]
+    VERDE = (0, 255, 0)       # cruz central
+    AMARILLO = (0, 255, 255)  # filas guía (no confundir con la cruz)
+
+    cv2.line(frame_bgr, (w // 2, 0), (w // 2, h), VERDE, 1)
+    cv2.line(frame_bgr, (0, h // 2), (w, h // 2), VERDE, 1)
+
+    y_mordazas = int(h * RETICULO_FRAC_MORDAZAS)
+    y_mesa = int(h * RETICULO_FRAC_MESA)
+    cv2.line(frame_bgr, (0, y_mordazas), (w, y_mordazas), AMARILLO, 1)
+    cv2.line(frame_bgr, (0, y_mesa), (w, y_mesa), AMARILLO, 1)
+    return frame_bgr
+
 class CameraVideoTrack(MediaStreamTrack):
     """
     Track de vídeo que captura desde la cámara USB conectada al PC del robot
@@ -156,10 +218,25 @@ class CameraVideoTrack(MediaStreamTrack):
         if not self.cap.isOpened():
             raise RuntimeError(f"No se pudo abrir la camara con indice {cam_index}")
 
-        # Configuramos resolucion y FPS en la camara
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAM_WIDTH)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAM_HEIGHT)
+        # Configuramos resolucion y FPS en la camara.
+        # OJO: cap.set() es solo una PETICION al driver; verificamos lo concedido.
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAPTURA_WIDTH)
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAPTURA_HEIGHT)
         self.cap.set(cv2.CAP_PROP_FPS, CAM_FPS)
+
+        real_w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        real_h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        if (real_w, real_h) != (CAPTURA_WIDTH, CAPTURA_HEIGHT):
+            log.warning(
+                f"La camara no concedio {CAPTURA_WIDTH}x{CAPTURA_HEIGHT}: "
+                f"esta capturando a {real_w}x{real_h}"
+            )
+        if MODO_16_9:
+            log.info(f"Modo 16:9 activo: captura {CAPTURA_WIDTH}x{CAPTURA_HEIGHT} "
+                     f"-> salida {CAM_WIDTH}x{CAM_HEIGHT}")
+        if MOSTRAR_RETICULO:
+            log.info("Reticulo de montaje ACTIVO (solo para P0.6; "
+                     "desactivar en pruebas reales)")
 
         self._pts = 0
         self._time_base = fractions.Fraction(1, CAM_FPS)
@@ -193,6 +270,14 @@ class CameraVideoTrack(MediaStreamTrack):
             # Si la camara no responde, enviamos un frame negro para no romper el stream
             frame_bgr = np.zeros((CAM_HEIGHT, CAM_WIDTH, 3), dtype=np.uint8)
             cv2.putText(frame_bgr, "CAMARA NO DISPONIBLE", (50, CAM_HEIGHT // 2), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,0,255), 2)
+        else:
+            # Si capturamos en 16:9 nativo (1280x720) y la salida es 640x360, reescalamos
+            if MODO_16_9 and (frame_bgr.shape[1], frame_bgr.shape[0]) != (CAM_WIDTH, CAM_HEIGHT):
+                frame_bgr = cv2.resize(frame_bgr, (CAM_WIDTH, CAM_HEIGHT), interpolation=cv2.INTER_AREA)
+
+            # Overlay de retículo para calibración y montaje en fase P0.6
+            if MOSTRAR_RETICULO:
+                frame_bgr = dibujar_reticulo(frame_bgr)
 
         # OpenCV trabaja en BGR; av/WebRTC espera RGB
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
@@ -210,6 +295,43 @@ class CameraVideoTrack(MediaStreamTrack):
         if self.cap.isOpened():
             self.cap.release()
         super().stop()
+
+# =================== REGISTRO M4: SIGUIENTE INTENTO SIN RECONECTAR =====================
+def escuchar_nuevos_intentos(registrador):
+    """
+    Hilo en segundo plano (solo para --metrica M4). Permite al observador marcar
+    "empieza un intento nuevo" sin reiniciar la conexión WebRTC completa, algo
+    que antes obligaba a cortar y reabrir toda la sesión para cada uno de los
+    intentos de M4 y por eso id_intento se quedaba fijo a 1 durante toda una
+    condición de red (ver hallazgo del 25/08/2026: "Nº correcciones" no se pudo
+    recuperar de los CSV de M4 por este motivo).
+
+    Uso desde el terminal donde corre este script, mientras la sesión está activa:
+      - Pulsar Enter (línea vacía)  -> incrementa id_intento en 1.
+      - Escribir "obj N1"/"N2"/"N3" -> cambia nivel_objeto para los intentos siguientes.
+      - Ctrl+D / Ctrl+Z             -> termina el hilo sin afectar a la sesión WebRTC.
+
+    No toca la conexión, la cámara ni el envío de comandos al robot: solo actualiza
+    los metadatos que RegistradorFuncional añade a cada fila del CSV.
+    """
+    log.info("Registro de intentos M4 activo: pulsa Enter para marcar 'siguiente intento', "
+              "o escribe 'obj N1'/'obj N2'/'obj N3' para cambiar de objeto.")
+    while True:
+        try:
+            linea = input()
+        except (EOFError, OSError):
+            break
+
+        linea = linea.strip()
+        if not linea:
+            nuevo = registrador.id_intento + 1
+            registrador.set_intento(nuevo)
+            log.info(f"[Registro M4] Nuevo intento marcado -> id_intento={nuevo}")
+        elif linea.lower().startswith("obj "):
+            nivel = linea[4:].strip().upper()
+            if nivel:
+                registrador.nivel_objeto = nivel
+                log.info(f"[Registro M4] Objeto actualizado -> nivel_objeto={nivel}")
 
 # =================== WEBRTC =====================
 async def ejecutar_webrtc(args):
@@ -231,6 +353,26 @@ async def ejecutar_webrtc(args):
     if ser is None:
         log.error("Imposible continuar sin conexión serial al robot")
         return
+
+    # Registro funcional M1-M4 (Fase P2): opt-in con --registrar-metricas, para que
+    # una sesion normal de teleoperacion (demo, uso real) no escriba nada a disco
+    # por defecto. Cuando esta activo, se abre sesion cuando el DataChannel queda
+    # establecido con Unity y se cierra al terminar ejecutar_webrtc() (bloque
+    # finally), tanto si la sesion acaba bien como por error/Ctrl+C. Se organiza en
+    # subcarpetas segun la metrica (ej. resultados/M1/csv_grabaciones, resultados/M2/csv_grabaciones...)
+    registrador = None
+    if args.registrar_metricas:
+        ruta_salida = Path(__file__).resolve().parents[1] / "Pruebas_Funcionales" / "resultados" / args.metrica / "csv_grabaciones"
+        registrador = RegistradorFuncional(output_dir=ruta_salida)
+
+        # Solo para M4 (pick-and-place): permite marcar "siguiente intento" con Enter
+        # sin reiniciar la conexión, ver escuchar_nuevos_intentos() más arriba.
+        if args.metrica == "M4":
+            threading.Thread(
+                target=escuchar_nuevos_intentos,
+                args=(registrador,),
+                daemon=True
+            ).start()
 
     min_dt = 1.0 / args.freq if args.freq > 0 else 0.0
     last_send = 0.0
@@ -298,9 +440,25 @@ async def ejecutar_webrtc(args):
                         data_channel = channel
                         log.info(f"DataChannel '{channel.label}' establecido --- control activo.")
 
+                        # Nueva sesión de registro funcional cada vez que se abre el
+                        # DataChannel (una reconexión de las gafas = una sesión nueva,
+                        # igual que se recrea la PeerConnection en el bloque "offer").
+                        # Solo si --registrar-metricas está activo.
+                        if registrador is not None:
+                            registrador.abrir_sesion(
+                                id_operador=args.operador,
+                                condicion_red=args.condicion,
+                                id_intento=args.intento
+                            )
+
                         @channel.on("message")
                         def on_message(msg):
                             nonlocal last_send, ser
+
+                            # t_robot_recepcion (registro funcional M1-M4): se toma
+                            # aquí, nada más entrar, para que sea lo más fiel posible
+                            # al instante real de llegada al bucle asyncio.
+                            t_robot_recepcion = time.time() * 1000.0
 
                             # 1. Parsear JSON — si falla, descartar
                             try:
@@ -378,6 +536,21 @@ async def ejecutar_webrtc(args):
                                 "t": round(t * 5, 1)
                             }
                             enviar_comando_serial(ser, cmd)
+                            t_uart_escritura = time.time() * 1000.0
+
+                            # Registro funcional M1-M4 (Fase P2): una fila por cada
+                            # comando efectivamente enviado por UART. clamp_activo
+                            # compara la coordenada antes y después de clamp(), no
+                            # el propio valor "seguro" contra los límites.
+                            # Solo si --registrar-metricas está activo (ver más arriba).
+                            if registrador is not None:
+                                registrador.registrar_comando(
+                                    norm_x=norm_x, norm_y=norm_y, norm_z=norm_z, g=gripper,
+                                    t_robot_recepcion=t_robot_recepcion,
+                                    x_cm=x_safe, y_cm=y_safe, z_cm=z_safe, t_rad=t,
+                                    t_uart_escritura=t_uart_escritura,
+                                    clamp_activo=(x_cm != x_safe or y_cm != y_safe or z_cm != z_safe)
+                                )
 
                             if TRACE_ENABLED:
                                 log.debug(
@@ -531,6 +704,9 @@ async def ejecutar_webrtc(args):
 
     finally:
         #---- Limpieza de recursos al salir ----
+        if registrador is not None:
+            registrador.cerrar_sesion()
+
         if video_track is not None:
             video_track.detener()
 
@@ -583,6 +759,30 @@ def main():
     parser.add_argument(
         "--max-reintentos", type=int, default=8,
         help="Número máximo de intentos de reconexión del WebSocket de señalización (default: 8)"
+    )
+    parser.add_argument(
+        "--operador", type=str, default="OP1",
+        help="Identificador del operador para el registro funcional M1-M4 (default: OP1)"
+    )
+    parser.add_argument(
+        "--condicion", type=str, default="C1_ETHERNET_SIN_CARGA",
+        help="Condición de red evaluada para el registro funcional (siempre Ethernet + Clumsy, nunca Wi-Fi "
+             "real), ej. C1_ETHERNET_SIN_CARGA, C2_ETHERNET_CLUMSY_CARGA_MEDIA, C3_ETHERNET_CLUMSY_CARGA_ALTA, "
+             "C4_ETHERNET_CLUMSY_EXTRA (default: C1_ETHERNET_SIN_CARGA)"
+    )
+    parser.add_argument(
+        "--intento", type=int, default=1,
+        help="Número de intento dentro de la condición actual, para las pruebas funcionales M1-M4 (default: 1)"
+    )
+    parser.add_argument(
+        "--metrica", type=str, default="M1",
+        help="Subcarpeta de la métrica en evaluación, ej. M1, M2, M3, M4 (default: M1)"
+    )
+    parser.add_argument(
+        "--registrar-metricas", action="store_true",
+        help="Activa el registro CSV de métricas funcionales M1-M4, comando a comando "
+             "(desactivado por defecto: una sesión normal de teleoperación no escribe nada a "
+             "disco; actívalo solo al ejecutar una prueba funcional explícita)"
     )
     args = parser.parse_args()
 
