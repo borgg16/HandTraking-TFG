@@ -354,21 +354,25 @@ async def ejecutar_webrtc(args):
         log.error("Imposible continuar sin conexión serial al robot")
         return
 
-    # Registro funcional M1-M4 (Fase P2): se abre sesión cuando el DataChannel
-    # queda establecido con Unity y se cierra al terminar ejecutar_webrtc()
-    # (bloque finally), tanto si la sesión acaba bien como por error/Ctrl+C.
-    # Se organiza en subcarpetas según la métrica (ej. resultados/M1/csv_grabaciones, resultados/M2/csv_grabaciones...)
-    ruta_salida = Path(__file__).resolve().parents[1] / "Pruebas_Funcionales" / "resultados" / args.metrica / "csv_grabaciones"
-    registrador = RegistradorFuncional(output_dir=ruta_salida)
+    # Registro funcional M1-M4 (Fase P2): opt-in con --registrar-metricas, para que
+    # una sesion normal de teleoperacion (demo, uso real) no escriba nada a disco
+    # por defecto. Cuando esta activo, se abre sesion cuando el DataChannel queda
+    # establecido con Unity y se cierra al terminar ejecutar_webrtc() (bloque
+    # finally), tanto si la sesion acaba bien como por error/Ctrl+C. Se organiza en
+    # subcarpetas segun la metrica (ej. resultados/M1/csv_grabaciones, resultados/M2/csv_grabaciones...)
+    registrador = None
+    if args.registrar_metricas:
+        ruta_salida = Path(__file__).resolve().parents[1] / "Pruebas_Funcionales" / "resultados" / args.metrica / "csv_grabaciones"
+        registrador = RegistradorFuncional(output_dir=ruta_salida)
 
-    # Solo para M4 (pick-and-place): permite marcar "siguiente intento" con Enter
-    # sin reiniciar la conexión, ver escuchar_nuevos_intentos() más arriba.
-    if args.metrica == "M4":
-        threading.Thread(
-            target=escuchar_nuevos_intentos,
-            args=(registrador,),
-            daemon=True
-        ).start()
+        # Solo para M4 (pick-and-place): permite marcar "siguiente intento" con Enter
+        # sin reiniciar la conexión, ver escuchar_nuevos_intentos() más arriba.
+        if args.metrica == "M4":
+            threading.Thread(
+                target=escuchar_nuevos_intentos,
+                args=(registrador,),
+                daemon=True
+            ).start()
 
     min_dt = 1.0 / args.freq if args.freq > 0 else 0.0
     last_send = 0.0
@@ -438,12 +442,14 @@ async def ejecutar_webrtc(args):
 
                         # Nueva sesión de registro funcional cada vez que se abre el
                         # DataChannel (una reconexión de las gafas = una sesión nueva,
-                        # igual que se recrea la PeerConnection en el bloque "offer")
-                        registrador.abrir_sesion(
-                            id_operador=args.operador,
-                            condicion_red=args.condicion,
-                            id_intento=args.intento
-                        )
+                        # igual que se recrea la PeerConnection en el bloque "offer").
+                        # Solo si --registrar-metricas está activo.
+                        if registrador is not None:
+                            registrador.abrir_sesion(
+                                id_operador=args.operador,
+                                condicion_red=args.condicion,
+                                id_intento=args.intento
+                            )
 
                         @channel.on("message")
                         def on_message(msg):
@@ -536,13 +542,15 @@ async def ejecutar_webrtc(args):
                             # comando efectivamente enviado por UART. clamp_activo
                             # compara la coordenada antes y después de clamp(), no
                             # el propio valor "seguro" contra los límites.
-                            registrador.registrar_comando(
-                                norm_x=norm_x, norm_y=norm_y, norm_z=norm_z, g=gripper,
-                                t_robot_recepcion=t_robot_recepcion,
-                                x_cm=x_safe, y_cm=y_safe, z_cm=z_safe, t_rad=t,
-                                t_uart_escritura=t_uart_escritura,
-                                clamp_activo=(x_cm != x_safe or y_cm != y_safe or z_cm != z_safe)
-                            )
+                            # Solo si --registrar-metricas está activo (ver más arriba).
+                            if registrador is not None:
+                                registrador.registrar_comando(
+                                    norm_x=norm_x, norm_y=norm_y, norm_z=norm_z, g=gripper,
+                                    t_robot_recepcion=t_robot_recepcion,
+                                    x_cm=x_safe, y_cm=y_safe, z_cm=z_safe, t_rad=t,
+                                    t_uart_escritura=t_uart_escritura,
+                                    clamp_activo=(x_cm != x_safe or y_cm != y_safe or z_cm != z_safe)
+                                )
 
                             if TRACE_ENABLED:
                                 log.debug(
@@ -696,7 +704,8 @@ async def ejecutar_webrtc(args):
 
     finally:
         #---- Limpieza de recursos al salir ----
-        registrador.cerrar_sesion()
+        if registrador is not None:
+            registrador.cerrar_sesion()
 
         if video_track is not None:
             video_track.detener()
@@ -768,6 +777,12 @@ def main():
     parser.add_argument(
         "--metrica", type=str, default="M1",
         help="Subcarpeta de la métrica en evaluación, ej. M1, M2, M3, M4 (default: M1)"
+    )
+    parser.add_argument(
+        "--registrar-metricas", action="store_true",
+        help="Activa el registro CSV de métricas funcionales M1-M4, comando a comando "
+             "(desactivado por defecto: una sesión normal de teleoperación no escribe nada a "
+             "disco; actívalo solo al ejecutar una prueba funcional explícita)"
     )
     args = parser.parse_args()
 
