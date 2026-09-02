@@ -4,7 +4,18 @@ Trabajo Fin de Grado (Ingeniería Telemática, E.T.S. Ingeniería de Telecomunic
 
 ## Vídeo de demostración
 
-*(pendiente — se añadirá aquí en cuanto esté editado el vídeo del sistema en funcionamiento)*
+[![Demostración del sistema de teleoperación](docs/media/poster_demo.jpg)](docs/media/TFG_demo_brazo_robotico_VR__NARRADO.mp4)
+
+> 📹 **[Ver / Descargar vídeo completo narrado (MP4, 1080p, 1:46 min)](docs/media/TFG_demo_brazo_robotico_VR__NARRADO.mp4)**  
+> *(Haz clic sobre la imagen superior o en el enlace para abrir y reproducir el vídeo demostrativo con narración explicativa).*
+
+### Fases demostradas en el vídeo
+
+1. **Fase 1 · Calibración inicial (brazo derecho):** El operador, equipado con el visor Meta Quest 2, calibra su rango de movimiento antropométrico mediante XR Hands en 5 segundos para mapear su espacio físico de interacción.
+2. **Fase 2 · Control activo y respuesta inmediata:** Teleoperación directa en tiempo real. Se aprecia la baja latencia en el seguimiento de la mano y en el accionamiento de la pinza mediante gesto de *pinch*.
+3. **Fase 3 · Rango de movimiento:** Exploración en los tres ejes espaciales (traslaciones lateral, frontal, elevación y descenso) con telemetría HUD en directo y retorno de vídeo *eye-in-hand* recibido vía WebRTC.
+4. **Fase 4 · Recalibración dinámica:** Transición rápida en caliente para alternar la teleoperación al brazo izquierdo sin interrumpir la sesión.
+5. **Fase 5 · Control activo (brazo izquierdo) y cierre seguro:** Operación con la mano izquierda y desconexión segura y ordenada del canal WebRTC y del brazo robótico.
 
 ## ¿Qué hace el sistema?
 
@@ -14,6 +25,7 @@ El proyecto se validó con cuatro pruebas funcionales (latencia de control, prec
 
 ## Estructura del repositorio
 
+- **`docs/media/`** — Vídeo demostrativo completo del sistema (`TFG_demo_brazo_robotico_VR__NARRADO.mp4`) y recursos multimedia asociados.
 - **`Assets/`** — Proyecto de Unity (visor Meta Quest 2): captura de *hand tracking* (XR Hands), calibración, interfaz de usuario en RV y cliente WebRTC.
 - **`PC-ROBOT/`** — Lado del robot, en Python:
   - `Control_Brazo/` — servidor de señalización y cliente WebRTC (`safe8_WebRTC.py`) que traduce los comandos recibidos en movimientos del RoArm-M2 vía puerto serie.
