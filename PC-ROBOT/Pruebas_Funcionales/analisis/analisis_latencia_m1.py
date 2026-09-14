@@ -58,12 +58,31 @@ def seleccionar_roi_interactivo(video_path: Path, nombre_roi: str) -> Optional[T
         return None
 
     try:
+        h, w = frame.shape[:2]
+        max_h, max_w = 850, 1280
+        scale = min(max_w / w, max_h / h, 1.0)
+
+        if scale < 1.0:
+            new_w, new_h = int(w * scale), int(h * scale)
+            display_frame = cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+        else:
+            display_frame = frame
+
+        window_name = f"Seleccion ROI - {nombre_roi} (240 FPS)"
         log.info(f"Selecciona con el ratón la ROI de [{nombre_roi}] y pulsa ENTER o ESPACIO (C o ESC para omitir)...")
-        r = cv2.selectROI(f"Seleccion ROI - {nombre_roi} (240 FPS)", frame, fromCenter=False, showCrosshair=True)
+        r = cv2.selectROI(window_name, display_frame, fromCenter=False, showCrosshair=True)
         cv2.destroyAllWindows()
         if r[2] > 0 and r[3] > 0:
-            log.info(f"ROI seleccionada para [{nombre_roi}]: x={r[0]}, y={r[1]}, w={r[2]}, h={r[3]}")
-            return (int(r[0]), int(r[1]), int(r[2]), int(r[3]))
+            rx = int(round(r[0] / scale))
+            ry = int(round(r[1] / scale))
+            rw = int(round(r[2] / scale))
+            rh = int(round(r[3] / scale))
+            rx = max(0, min(rx, w - 1))
+            ry = max(0, min(ry, h - 1))
+            rw = min(rw, w - rx)
+            rh = min(rh, h - ry)
+            log.info(f"ROI seleccionada para [{nombre_roi}] (ajustada a resolucion original): x={rx}, y={ry}, w={rw}, h={rh}")
+            return (rx, ry, rw, rh)
     except Exception as e:
         log.warning(f"Interacción gráfica no disponible ({e}). Usando partición automática.")
     return None
