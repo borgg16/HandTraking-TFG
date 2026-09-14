@@ -5022,6 +5022,7 @@ MonoBehaviour:
   frecuenciaEnvioHz: 50
   tiempoBloqueoSeg: 0.6
   colorBloqueado: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+  lazyFollowCanvas: {fileID: 707692915}
 --- !u!114 &1354370590
 MonoBehaviour:
   m_ObjectHideFlags: 0

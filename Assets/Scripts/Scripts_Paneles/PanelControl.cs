@@ -2,6 +2,7 @@ using System;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using UnityEngine.XR.Interaction.Toolkit.UI;
 
 public class PanelControl : MonoBehaviour
 {
@@ -53,6 +54,8 @@ public class PanelControl : MonoBehaviour
     [Tooltip("Segundos de pellizco mantenido para bloquear posición y pinza (fija el encuadre para poder quitarte las gafas sin que el brazo se mueva)")]
     public float tiempoBloqueoSeg = 0.6f;
     public Color colorBloqueado = Color.yellow;
+    [Tooltip("Componente LazyFollow del Canvas (el que hace que el panel/vídeo siga a la cabeza). Se desactiva al bloquear para que el panel también se quede fijo en el sitio, no solo el brazo.")]
+    public LazyFollow lazyFollowCanvas;
     private bool bloqueado = false;
     private float inicioPellizco = -1f;
 
@@ -119,6 +122,7 @@ public class PanelControl : MonoBehaviour
         controlActivo = true;
         bloqueado = false;
         inicioPellizco = -1f;
+        if (lazyFollowCanvas != null) lazyFollowCanvas.enabled = true;
 
         if (esferaReferencia != null) esferaReferencia.Iniciar(manoCalibrada, mano);
 
@@ -220,6 +224,12 @@ public class PanelControl : MonoBehaviour
             {
                 bloqueado = true;
 
+                // Desactivamos el LazyFollow del Canvas: si no, aunque el brazo se
+                // quede quieto, el panel (y el vídeo dentro de él) se seguiría
+                // moviendo con la cabeza hasta el ultimo momento en el que te
+                // quites las gafas, cambiando el plano igualmente.
+                if (lazyFollowCanvas != null) lazyFollowCanvas.enabled = false;
+
                 if (textoPellizcoMano != null)
                 {
                     textoPellizcoMano.text = "*LOCKED (plano fijado)";
@@ -290,6 +300,7 @@ public class PanelControl : MonoBehaviour
         controlActivo = false;
         bloqueado = false;
         inicioPellizco = -1f;
+        if (lazyFollowCanvas != null) lazyFollowCanvas.enabled = true;
         LimpiarTextos();
         OnVolverCalibrar?.Invoke();
         Debug.Log("PanelControl: notificando UIManager → volver a calibrar");
