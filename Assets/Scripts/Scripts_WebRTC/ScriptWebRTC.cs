@@ -52,6 +52,18 @@ public class ScriptWebRTC : MonoBehaviour
 
     private CancellationTokenSource cancelToken;
 
+    private Coroutine crearOfertaCoroutine;
+    //Handle de la coroutine CrearOferta() en curso. Guardamos la referencia para
+    //poder pararla si llega una reconexion (ReiniciarConexion) antes de que la
+    //negociacion anterior termine: sin esto, dos CrearOferta() a la vez pueden
+    //pisarse sobre 'peerConnection'/'dataChannel' (son campos compartidos, cada
+    //una asigna 'peerConnection = new RTCPeerConnection(...)' sin mirar si ya
+    //habia otra a medias) y dejan el video y el DataChannel en un estado
+    //inconsistente -- pantalla en blanco y brazo sin responder aunque el
+    //WebSocket de signaling este bien. Pasa sobre todo si se recalibra dos
+    //veces seguidas rapido (UIManager.IrACalibracion llama a ReiniciarConexion
+    //cada vez que se entra en el panel de calibracion).
+
     private ConcurrentQueue<string> mensajesPendientes = new ConcurrentQueue<string>();
     //Cola thread-safe: el hilo de red mete mensajes aqui(Enqueue)
     //Update() los saca y procesa en el hilo principal (TryDequeue).
@@ -126,6 +138,16 @@ public class ScriptWebRTC : MonoBehaviour
                 CancellationToken.None
             );
         }
+
+        //Paramos cualquier negociacion CrearOferta() que estuviera a medias antes
+        //de tocar peerConnection/dataChannel, para que no siga corriendo y los
+        //vuelva a asignar por su cuenta despues de que los hayamos cerrado aqui.
+        if (crearOfertaCoroutine != null)
+        {
+            StopCoroutine(crearOfertaCoroutine);
+            crearOfertaCoroutine = null;
+        }
+
         dataChannel?.Close();
         dataChannel = null;
 
@@ -203,8 +225,10 @@ public class ScriptWebRTC : MonoBehaviour
                 //El bucle corre indefinidamente hasta que se cancela en OnDestroy
                 _ = BucleRecepcion();
 
-                //Lanzamos la creación de la oferta WebRTC.
-                StartCoroutine(CrearOferta());
+                //Lanzamos la creación de la oferta WebRTC. Guardamos el handle
+                //(ver CerrarConexion) por si llega otra reconexión antes de que
+                //esta termine su negociación ICE/SDP.
+                crearOfertaCoroutine = StartCoroutine(CrearOferta());
 
                 return; //Conexion establecida: salimos del bucle de reintentos
             }
