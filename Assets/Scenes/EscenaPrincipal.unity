@@ -5020,6 +5020,8 @@ MonoBehaviour:
   sensibilidadLateral: 2
   esferaReferencia: {fileID: 602627152}
   frecuenciaEnvioHz: 50
+  tiempoBloqueoSeg: 0.6
+  colorBloqueado: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
 --- !u!114 &1354370590
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -6156,7 +6158,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 75fca1050ba781343b12c4e4f17fc126, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ScriptWebRTC
-  ipRobot: 192.168.3.28
+  ipRobot: 10.138.166.137
   puertoWebRTC: 8080
   sessionToken: TFG_Secret_Token_2026
   maxIntentosReconexion: 8

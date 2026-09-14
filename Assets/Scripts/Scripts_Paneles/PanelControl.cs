@@ -49,6 +49,13 @@ public class PanelControl : MonoBehaviour
     public float frecuenciaEnvioHz = 50f;
     private float ultimoEnvio = 0f;
 
+    [Header("Bloqueo de plano (para grabación)")]
+    [Tooltip("Segundos de pellizco mantenido para bloquear posición y pinza (fija el encuadre para poder quitarte las gafas sin que el brazo se mueva)")]
+    public float tiempoBloqueoSeg = 0.6f;
+    public Color colorBloqueado = Color.yellow;
+    private bool bloqueado = false;
+    private float inicioPellizco = -1f;
+
     //EVENTOS PARA LOS CAMBIOS DE PANELES
     public event Action OnVolverCalibrar;
     public event Action OnFinalizar;
@@ -110,6 +117,8 @@ public class PanelControl : MonoBehaviour
         }
 
         controlActivo = true;
+        bloqueado = false;
+        inicioPellizco = -1f;
 
         if (esferaReferencia != null) esferaReferencia.Iniciar(manoCalibrada, mano);
 
@@ -124,6 +133,14 @@ public class PanelControl : MonoBehaviour
     {
         if (!controlActivo) return;
         if (!manoCalibrada.neutroGuardado || !manoCalibrada.guardado || mano == null) return;
+
+        // Bloqueado (plano fijado para grabar): no leemos ni enviamos nada más.
+        // Así, aunque el tracking de la mano se pierda o se dispare al quitarte las
+        // gafas, no se procesa ese dato y el robot se queda quieto en la última
+        // posición/pinza que recibió (safe8_WebRTC.py es puramente reactivo, no
+        // hace falta tocar nada en el PC del robot para esto).
+        if (bloqueado) return;
+
         if (thumbTip == null || indexTip == null) return;
 
         //------- Posicion Normalizada ---------------------------------
@@ -192,6 +209,36 @@ public class PanelControl : MonoBehaviour
             textoPellizcoMano.color = pellizcoActivo ? colorPellizco : colorReposo;
         }
 
+        //----- Bloqueo de plano: pellizco mantenido -------------------
+        // Si se mantiene el pellizco tiempoBloqueoSeg segundos seguidos, fijamos
+        // la posición y la pinza tal cual están en este instante (útil para grabar
+        // un plano y poder quitarte las gafas sin que el brazo se mueva más).
+        if (pellizcoActivo)
+        {
+            if (inicioPellizco < 0f) inicioPellizco = Time.time;
+            else if (Time.time - inicioPellizco >= tiempoBloqueoSeg)
+            {
+                bloqueado = true;
+
+                if (textoPellizcoMano != null)
+                {
+                    textoPellizcoMano.text = "*LOCKED (plano fijado)";
+                    textoPellizcoMano.color = colorBloqueado;
+                }
+
+                // Enviamos una última vez para que el robot quede fijo en esta
+                // posición. Forzamos la pinza a ABIERTA (1) en vez del valor real
+                // del pellizco: el gesto de pellizco solo dispara el bloqueo, se ve
+                // mejor en cámara con la pinza abierta que cerrada.
+                scriptWebRTC.EnviarPosicion(normalizada, 1f);
+                return;
+            }
+        }
+        else
+        {
+            inicioPellizco = -1f;
+        }
+
         //----- Texto de coordenadas de la mano ----------------------
         if (textoCoordsMano != null)
         {
@@ -241,6 +288,8 @@ public class PanelControl : MonoBehaviour
     {
         if (esferaReferencia != null) esferaReferencia.Ocultar();
         controlActivo = false;
+        bloqueado = false;
+        inicioPellizco = -1f;
         LimpiarTextos();
         OnVolverCalibrar?.Invoke();
         Debug.Log("PanelControl: notificando UIManager → volver a calibrar");
