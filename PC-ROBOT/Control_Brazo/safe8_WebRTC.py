@@ -745,8 +745,8 @@ def main():
         help="Índice de la cámara del brazo a transmitir a Unity (default: 0)"
     )
     parser.add_argument(
-        "--ip", type=str, default="192.168.1.124",
-        help="IP del PC donde corre signaling_server.py (default: 192.168.1.124)"
+        "--ip", type=str, default=getattr(config, "SIGNALING_IP", "10.138.166.137"),
+        help=f"IP del PC donde corre signaling_server.py (default: {getattr(config, 'SIGNALING_IP', '10.138.166.137')})"
     )
     parser.add_argument(
         "--puerto-webrtc", type=int, default=8080,
